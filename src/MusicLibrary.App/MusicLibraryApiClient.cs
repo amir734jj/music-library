@@ -1,4 +1,5 @@
 using MusicLibrary.Contracts;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
 using Newtonsoft.Json.Linq;
 using Newtonsoft.Json.Serialization;
@@ -102,10 +103,11 @@ public static class MusicLibraryApi
             throw new HttpRequestException("The email or password is incorrect.");
         }
 
+        var status = response.StatusCode is { } statusCode ? ((int)statusCode).ToString() : "unknown";
         var body = (response.Error as ApiException)?.Content;
         if (string.IsNullOrWhiteSpace(body))
         {
-            throw new HttpRequestException($"The API request failed with status {(int)response.StatusCode}.", response.Error);
+            throw new HttpRequestException($"The API request failed with status {status}.", response.Error);
         }
 
         try
@@ -124,6 +126,6 @@ public static class MusicLibraryApi
         {
         }
 
-        throw new HttpRequestException($"The API request failed with status {(int)response.StatusCode}.", response.Error);
+        throw new HttpRequestException($"The API request failed with status {status}.", response.Error);
     }
 }
