@@ -57,3 +57,14 @@ dotnet build src/MusicLibrary.App.Android/MusicLibrary.App.Android.csproj \
 ## Android release
 
 The GitHub Actions workflow in `.github/workflows/android-release.yml` builds a debug-signed Android APK on every `master` push and updates the single prerelease tag named `latest`. Because the APK is debug-signed (not a persistent release keystore), it installs with Android's "unknown/untrusted developer" warning and updates may require uninstalling the previous build first.
+
+## Web container
+
+The root `Dockerfile` publishes `MusicLibrary.App.Browser` and serves its static WebAssembly assets with Nginx on port `8080`.
+
+```bash
+docker build --tag music-library-web .
+docker run --rm --publish 8080:8080 music-library-web
+```
+
+The API is deployed separately. Configure its CORS policy to allow the browser application's public origin before connecting the UI to authenticated API endpoints.
