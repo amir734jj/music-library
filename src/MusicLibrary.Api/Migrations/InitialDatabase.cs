@@ -88,7 +88,7 @@ public sealed class InitialDatabase : Migration
             .WithColumn("Name").AsString().NotNullable()
             .WithColumn("Genre").AsString().NotNullable()
             .WithColumn("StreamUrl").AsString().NotNullable()
-            .WithColumn("IsProbeEnabled").AsBoolean().NotNullable()
+            .WithColumn("IsProbeEnabled").AsBoolean().NotNullable().WithDefaultValue(true)
             .WithColumn("LastProbedAt").AsCustom("timestamp with time zone").Nullable()
             .WithColumn("LastMetadataAt").AsCustom("timestamp with time zone").Nullable()
             .WithColumn("ConsecutiveProbeFailures").AsInt32().NotNullable();

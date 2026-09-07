@@ -6,11 +6,15 @@ namespace MusicLibrary.App;
 
 public sealed partial class MainView : UserControl
 {
+    private const int ProbePageSize = 100;
     private CancellationTokenSource? _librarySearchCancellation;
+    private CancellationTokenSource? _libraryPollingCancellation;
     private CancellationTokenSource? _probeSearchCancellation;
+    private CancellationTokenSource? _probeStatusPollingCancellation;
     private CancellationTokenSource? _sessionExpiryCancellation;
     private bool _probingEnabled;
     private int _enabledStationCount;
+    private int _probePage = 1;
 
     public bool IsBrowserHost { get; }
     public bool ShowNativeMedia
@@ -55,6 +59,16 @@ public sealed partial class MainView : UserControl
         {
             ApiConnectionStatus.Text = "API unavailable";
         }
+    }
+
+    protected override void OnDetachedFromVisualTree(Avalonia.VisualTreeAttachmentEventArgs eventArgs)
+    {
+        _librarySearchCancellation?.Cancel();
+        _libraryPollingCancellation?.Cancel();
+        _probeSearchCancellation?.Cancel();
+        _probeStatusPollingCancellation?.Cancel();
+        _sessionExpiryCancellation?.Cancel();
+        base.OnDetachedFromVisualTree(eventArgs);
     }
 
     private async void Listen_Click(object? sender, RoutedEventArgs eventArgs)
@@ -106,7 +120,9 @@ public sealed partial class MainView : UserControl
     private void SignOutAndShowAuthentication()
     {
         _librarySearchCancellation?.Cancel();
+        _libraryPollingCancellation?.Cancel();
         _probeSearchCancellation?.Cancel();
+        _probeStatusPollingCancellation?.Cancel();
         _sessionExpiryCancellation?.Cancel();
         MusicLibraryApi.SignOut();
         ApplicationView.IsVisible = false;
@@ -144,8 +160,34 @@ public sealed partial class MainView : UserControl
 
     private void ShowLibrary()
     {
+        _probeStatusPollingCancellation?.Cancel();
         AdministrationView.IsVisible = false;
         LibraryView.IsVisible = true;
+        StartNowPlayingPolling();
+    }
+
+    private void StartNowPlayingPolling()
+    {
+        _libraryPollingCancellation?.Cancel();
+        if (!MusicLibraryApi.IsAuthenticated) return;
+
+        var cancellation = _libraryPollingCancellation = new CancellationTokenSource();
+        _ = PollNowPlayingAsync(cancellation.Token);
+    }
+
+    private async Task PollNowPlayingAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+                await LoadNowPlayingAsync(LibrarySearchInput.Text, cancellationToken, showLoading: false);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
     }
 
     private async void LibrarySearchInput_TextChanged(object? sender, TextChangedEventArgs eventArgs)
@@ -162,10 +204,16 @@ public sealed partial class MainView : UserControl
         }
     }
 
-    private async Task LoadNowPlayingAsync(string? query = null, CancellationToken cancellationToken = default)
+    private async Task LoadNowPlayingAsync(
+        string? query = null,
+        CancellationToken cancellationToken = default,
+        bool showLoading = true)
     {
-        NowPlayingStatus.Text = string.IsNullOrWhiteSpace(query) ? "Loading live observations..." : "Searching...";
-        NowPlayingList.ItemsSource = null;
+        if (showLoading)
+        {
+            NowPlayingStatus.Text = string.IsNullOrWhiteSpace(query) ? "Loading live observations..." : "Searching...";
+            NowPlayingList.ItemsSource = null;
+        }
         try
         {
             var observations = await MusicLibraryApi.GetNowPlayingAsync(query, cancellationToken);
@@ -174,7 +222,7 @@ public sealed partial class MainView : UserControl
                 ? (string.IsNullOrWhiteSpace(query)
                     ? "No live observations yet. An administrator must import stations and enable probing first."
                     : "No matching artists, tracks, or stations found.")
-                : $"{observations.Count} observation(s)";
+                : $"{observations.Count} observation(s) | Updated {DateTime.Now:T}";
         }
         catch (OperationCanceledException)
         {
@@ -216,14 +264,42 @@ public sealed partial class MainView : UserControl
 
     private async void Administration_Click(object? sender, RoutedEventArgs eventArgs)
     {
+        _libraryPollingCancellation?.Cancel();
+        _probeStatusPollingCancellation?.Cancel();
         LibraryView.IsVisible = false;
         AdministrationView.IsVisible = true;
         await Task.WhenAll(LoadAdminUsersAsync(), LoadProbeStatusAsync(), LoadGlobalConfigAsync());
+        if (AdministrationView.IsVisible)
+        {
+            StartProbeStatusPolling();
+        }
+    }
+
+    private void StartProbeStatusPolling()
+    {
+        _probeStatusPollingCancellation?.Cancel();
+        var cancellation = _probeStatusPollingCancellation = new CancellationTokenSource();
+        _ = PollProbeStatusAsync(cancellation.Token);
+    }
+
+    private async Task PollProbeStatusAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(3), cancellationToken);
+                await LoadProbeStatusAsync(ProbeStationSearchInput.Text, _probePage, cancellationToken, showLoading: false);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
     }
 
     private async void RefreshProbeStatus_Click(object? sender, RoutedEventArgs eventArgs)
     {
-        await LoadProbeStatusAsync(ProbeStationSearchInput.Text);
+        await LoadProbeStatusAsync(ProbeStationSearchInput.Text, _probePage);
     }
 
     private async void ProbeStationSearchInput_TextChanged(object? sender, TextChangedEventArgs eventArgs)
@@ -233,7 +309,8 @@ public sealed partial class MainView : UserControl
         try
         {
             await Task.Delay(300, cancellation.Token);
-            await LoadProbeStatusAsync(ProbeStationSearchInput.Text, cancellation.Token);
+            _probePage = 1;
+            await LoadProbeStatusAsync(ProbeStationSearchInput.Text, _probePage, cancellation.Token);
         }
         catch (OperationCanceledException)
         {
@@ -246,7 +323,8 @@ public sealed partial class MainView : UserControl
         try
         {
             var result = await MusicLibraryApi.ImportStationsAsync();
-            await LoadProbeStatusAsync();
+            _probePage = 1;
+            await LoadProbeStatusAsync(page: _probePage);
             ProbeStatus.Text = $"Import complete | {result.Created} created | {result.Updated} updated | {result.Rejected} rejected";
         }
         catch (Exception exception)
@@ -283,7 +361,7 @@ public sealed partial class MainView : UserControl
         try
         {
             await MusicLibraryApi.SetAllStationProbingEnabledAsync(enable);
-            await LoadProbeStatusAsync();
+            await LoadProbeStatusAsync(ProbeStationSearchInput.Text, _probePage);
         }
         catch (Exception exception)
         {
@@ -353,18 +431,41 @@ public sealed partial class MainView : UserControl
         }
     }
 
-    private async Task LoadProbeStatusAsync(string? query = null, CancellationToken cancellationToken = default)
+    private async void PreviousProbePage_Click(object? sender, RoutedEventArgs eventArgs)
     {
-        ProbeStatus.Text = "Loading probe status...";
-        ProbeStationsList.ItemsSource = null;
+        if (_probePage <= 1) return;
+        await LoadProbeStatusAsync(ProbeStationSearchInput.Text, _probePage - 1);
+    }
+
+    private async void NextProbePage_Click(object? sender, RoutedEventArgs eventArgs)
+    {
+        await LoadProbeStatusAsync(ProbeStationSearchInput.Text, _probePage + 1);
+    }
+
+    private async Task LoadProbeStatusAsync(
+        string? query = null,
+        int page = 1,
+        CancellationToken cancellationToken = default,
+        bool showLoading = true)
+    {
+        if (showLoading)
+        {
+            ProbeStatus.Text = "Loading probe status...";
+            ProbeStationsList.ItemsSource = null;
+        }
         try
         {
-            var status = await MusicLibraryApi.GetAdminProbeStatusAsync(query, cancellationToken);
+            var status = await MusicLibraryApi.GetAdminProbeStatusAsync(query, page, ProbePageSize, cancellationToken);
+            _probePage = status.Page;
             SetProbingEnabledState(status.ProbingEnabled);
             _enabledStationCount = status.EnabledStationCount;
             StationProbesToggleButton.Content = status.EnabledStationCount == 0 ? "Enable all stations" : "Disable all stations";
             StationProbesToggleButton.IsEnabled = status.MatchingStationCount > 0;
             ProbeStationsList.ItemsSource = status.Stations.Select(CreateProbeStatusRow).ToList();
+            var pageCount = Math.Max(1, (int)Math.Ceiling(status.MatchingStationCount / (double)status.PageSize));
+            ProbePageStatus.Text = $"Page {status.Page} of {pageCount}";
+            PreviousProbePageButton.IsEnabled = status.Page > 1;
+            NextProbePageButton.IsEnabled = status.Page < pageCount;
             var workerState = status.ProbingEnabled ? "enabled" : "disabled";
             var batchState = status.LastBatchStartedAt is null
                 ? "No probe batch has run since the API started."
@@ -376,7 +477,7 @@ public sealed partial class MainView : UserControl
                 : status.MatchingStationCount > status.Stations.Count
                     ? $"Showing {status.Stations.Count} of {status.MatchingStationCount} matching stations."
                     : $"{status.MatchingStationCount} station(s).";
-            ProbeStatus.Text = $"Worker {workerState} | {status.ActiveProbeCount} querying now | {status.EnabledStationCount} enabled | {stationState} {batchState}";
+            ProbeStatus.Text = $"Worker {workerState} | {status.ActiveProbeCount} querying now | {status.EnabledStationCount} enabled | {stationState} {batchState} Updated {DateTime.Now:T}";
         }
         catch (OperationCanceledException)
         {
@@ -457,7 +558,7 @@ public sealed partial class MainView : UserControl
         try
         {
             await MusicLibraryApi.SetStationProbingEnabledAsync(station.Id, !station.IsProbeEnabled);
-            await LoadProbeStatusAsync();
+            await LoadProbeStatusAsync(ProbeStationSearchInput.Text, _probePage);
         }
         catch (Exception exception)
         {

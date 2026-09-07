@@ -13,12 +13,12 @@ public sealed class StationProbeWorker(
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        using var timer = new PeriodicTimer(TimeSpan.FromMinutes(1));
-        while (await timer.WaitForNextTickAsync(stoppingToken))
+        while (!stoppingToken.IsCancellationRequested)
         {
+            var probedStations = false;
             try
             {
-                await ProbeBatchAsync(stoppingToken);
+                probedStations = await ProbeBatchAsync(stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -28,28 +28,38 @@ public sealed class StationProbeWorker(
             {
                 logger.LogError(exception, "Station metadata probe batch failed.");
             }
+
+            if (!probedStations)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
+            }
         }
     }
 
-    private async Task ProbeBatchAsync(CancellationToken cancellationToken)
+    private async Task<bool> ProbeBatchAsync(CancellationToken cancellationToken)
     {
+        using var scope = scopeFactory.CreateScope();
+        var config = await scope.ServiceProvider.GetRequiredService<IGlobalConfigService>().GetAsync(cancellationToken);
+        if (!config.ProbingEnabled)
+        {
+            return false;
+        }
+
+        var stations = (await scope.ServiceProvider.GetRequiredService<IEfRepository>().For<Station>().GetAll(
+                filterExprs: [station => station.IsProbeEnabled],
+                orderBy: Ordering<Station>.Asc(station => station.LastProbedAt),
+                maxResults: config.ProbeBatchSize)).ToList();
+        if (stations.Count == 0)
+        {
+            return false;
+        }
+
         statusStore.BatchStarted();
         try
         {
-            using var scope = scopeFactory.CreateScope();
-            var config = await scope.ServiceProvider.GetRequiredService<IGlobalConfigService>().GetAsync(cancellationToken);
-            if (!config.ProbingEnabled)
-            {
-                return;
-            }
-
-            var stations = await scope.ServiceProvider.GetRequiredService<IEfRepository>().For<Station>().GetAll(
-                filterExprs: [station => station.IsProbeEnabled],
-                orderBy: Ordering<Station>.Asc(station => station.LastProbedAt),
-                maxResults: config.ProbeBatchSize);
-
             using var gate = new SemaphoreSlim(config.ProbeConcurrency);
             await Task.WhenAll(stations.Select(station => ProbeStationAsync(station, config.ProbeTimeoutSeconds, gate, cancellationToken)));
+            return true;
         }
         finally
         {

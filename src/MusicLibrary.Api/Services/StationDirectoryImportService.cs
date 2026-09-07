@@ -51,7 +51,15 @@ public sealed class StationDirectoryImportService(
 
                 if (!existing.TryGetValue(station.ID, out var entity))
                 {
-                    entity = new Station { Id = Guid.NewGuid(), DirectoryId = station.ID, Name = station.Name!.Trim(), Genre = genre, StreamUrl = station.Url!.Trim() };
+                    entity = new Station
+                    {
+                        Id = Guid.NewGuid(),
+                        DirectoryId = station.ID,
+                        Name = station.Name!.Trim(),
+                        Genre = genre,
+                        StreamUrl = station.Url!.Trim(),
+                        IsProbeEnabled = true
+                    };
                     pendingCreates.Add(entity);
                     existing.Add(station.ID, entity);
                     created++;

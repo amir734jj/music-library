@@ -26,7 +26,7 @@ public sealed class Station
     public string Name { get; set; } = string.Empty;
     public string Genre { get; set; } = string.Empty;
     public string StreamUrl { get; set; } = string.Empty;
-    public bool IsProbeEnabled { get; set; }
+    public bool IsProbeEnabled { get; set; } = true;
     public DateTimeOffset? LastProbedAt { get; set; }
     public DateTimeOffset? LastMetadataAt { get; set; }
     public int ConsecutiveProbeFailures { get; set; }

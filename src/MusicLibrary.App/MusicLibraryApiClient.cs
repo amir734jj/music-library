@@ -28,7 +28,12 @@ public interface IMusicLibraryApiClient
     Task<ApiResponse<List<UserSummary>>> GetAdminUsersAsync([Authorize] string accessToken, CancellationToken cancellationToken = default);
 
     [Get("/api/admin/probes/status")]
-    Task<ApiResponse<ProbeStatusSummary>> GetAdminProbeStatusAsync([Query] string? query, [Authorize] string accessToken, CancellationToken cancellationToken = default);
+    Task<ApiResponse<ProbeStatusSummary>> GetAdminProbeStatusAsync(
+        [Query] string? query,
+        [Query] int page,
+        [Query] int pageSize,
+        [Authorize] string accessToken,
+        CancellationToken cancellationToken = default);
 
     [Get("/api/admin/config")]
     Task<ApiResponse<GlobalConfigModel>> GetAdminConfigAsync([Authorize] string accessToken, CancellationToken cancellationToken = default);
@@ -163,10 +168,14 @@ public static class MusicLibraryApi
         return GetContent(response);
     }
 
-    public static async Task<ProbeStatusSummary> GetAdminProbeStatusAsync(string? query = null, CancellationToken cancellationToken = default)
+    public static async Task<ProbeStatusSummary> GetAdminProbeStatusAsync(
+        string? query = null,
+        int page = 1,
+        int pageSize = 100,
+        CancellationToken cancellationToken = default)
     {
         if (!IsAuthenticated) throw new InvalidOperationException("An authenticated session is required.");
-        using var response = await Client.GetAdminProbeStatusAsync(query, _authentication!.AccessToken, cancellationToken);
+        using var response = await Client.GetAdminProbeStatusAsync(query, page, pageSize, _authentication!.AccessToken, cancellationToken);
         EnsureSuccess(response);
         return GetContent(response);
     }

@@ -45,6 +45,8 @@ public sealed record ProbeStatusSummary(
 	int ActiveProbeCount,
 	int EnabledStationCount,
 	int MatchingStationCount,
+	int Page,
+	int PageSize,
 	IReadOnlyCollection<StationProbeStatusSummary> Stations);
 public sealed record NowPlayingSummary(Guid StationId, string StationName, string? Artist, string? Title, string RawMetadata, DateTimeOffset ObservedAt, decimal Confidence);
 public sealed record ArtistSubscriptionSummary(Guid Id, string ArtistName, DateTimeOffset CreatedAt, bool CaptureEnabled);

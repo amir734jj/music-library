@@ -75,8 +75,14 @@ public sealed class AdminController(
     }
 
     [HttpGet("probes/status")]
-    public async Task<ActionResult<ProbeStatusSummary>> GetProbeStatus([FromQuery] string? query, CancellationToken cancellationToken)
+    public async Task<ActionResult<ProbeStatusSummary>> GetProbeStatus(
+        [FromQuery] string? query,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 100,
+        CancellationToken cancellationToken = default)
     {
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 200);
         var config = await configService.GetAsync(cancellationToken);
         var runtime = probeStatusStore.GetSnapshot();
         var filters = string.IsNullOrWhiteSpace(query)
@@ -95,7 +101,8 @@ public sealed class AdminController(
         var stations = await stationRepository.GetAll<Station>(
             filterExprs: filters,
             orderBy: Ordering<Station>.Desc(station => station.IsProbeEnabled).ThenAsc(station => station.Name),
-            maxResults: 100);
+            skip: (page - 1) * pageSize,
+            maxResults: pageSize);
         var stationStatuses = stations.Select(station =>
         {
             var isProbing = runtime.ActiveProbes.TryGetValue(station.Id, out var probeStartedAt);
@@ -119,6 +126,8 @@ public sealed class AdminController(
             runtime.ActiveProbes.Count,
             enabledStationCount,
             matchingStationCount,
+            page,
+            pageSize,
             stationStatuses));
     }
 
