@@ -1,5 +1,3 @@
-using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
 using EfCoreRepository.Interfaces;
 using EfCoreRepository.Models;
 using MusicLibrary.Api.Data;
@@ -12,7 +10,7 @@ namespace MusicLibrary.Api.Controllers;
 [ApiController]
 [Route("api")]
 [Authorize]
-public sealed class LibraryController(IEfRepository repository) : ControllerBase
+public sealed class LibraryController(IEfRepository repository) : MusicLibraryControllerBase
 {
     [HttpGet("now-playing")]
     public async Task<IReadOnlyCollection<NowPlayingSummary>> NowPlaying([FromQuery] string? query)
@@ -67,7 +65,5 @@ public sealed class LibraryController(IEfRepository repository) : ControllerBase
             orderBy: Ordering<UserAlert>.Desc(alert => alert.CreatedAt),
             project: alert => new UserAlertSummary(alert.Id, alert.ArtistSubscription.ArtistName, alert.PlayObservation.Station.Name, alert.PlayObservation.Title, alert.PlayObservation.ObservedAt),
             maxResults: 100);
-
-    private Guid CurrentUserId => Guid.Parse(User.FindFirstValue(JwtRegisteredClaimNames.Sub)!);
 }
 

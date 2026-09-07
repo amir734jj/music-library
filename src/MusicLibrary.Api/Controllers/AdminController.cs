@@ -1,5 +1,3 @@
-using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
 using MusicLibrary.Api.Data;
 using MusicLibrary.Api.Services;
 using MusicLibrary.Contracts;
@@ -151,10 +149,5 @@ public sealed class AdminController(
         if (!user.IsActive || !await userManager.IsInRoleAsync(user, Roles.Admin)) return false;
         var administrators = await userManager.GetUsersInRoleAsync(Roles.Admin);
         return administrators.All(administrator => administrator.Id == user.Id || !administrator.IsActive);
-    }
-
-    private Guid CurrentUserId
-    {
-        get { return Guid.Parse(User.FindFirstValue(JwtRegisteredClaimNames.Sub)!); }
     }
 }

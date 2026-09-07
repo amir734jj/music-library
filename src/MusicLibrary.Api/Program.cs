@@ -29,6 +29,8 @@ builder.Host.UseSerilog((context, services, configuration) => configuration
 var databaseUrl = builder.Configuration["DATABASE_URL"] ?? throw new InvalidOperationException("DATABASE_URL is required.");
 var connectionString = DatabaseUrlConverter.ToConnectionString(databaseUrl);
 var jwtKey = builder.Configuration["Jwt:Key"] ?? throw new InvalidOperationException("Jwt:Key is required.");
+var jwtIssuer = builder.Configuration["Jwt:Issuer"] ?? throw new InvalidOperationException("Jwt:Issuer is required.");
+var jwtAudience = builder.Configuration["Jwt:Audience"] ?? throw new InvalidOperationException("Jwt:Audience is required.");
 
 builder.Services.AddDbContext<MusicLibraryDbContext>(options => options.UseNpgsql(connectionString));
 builder.Services.AddFluentMigratorCore().ConfigureRunner(runner => runner
@@ -53,25 +55,43 @@ builder.Services.AddAuthentication(options =>
     options.TokenValidationParameters = new TokenValidationParameters
     {
         ValidateIssuer = true, ValidateAudience = true, ValidateLifetime = true, ValidateIssuerSigningKey = true,
-        ValidIssuer = builder.Configuration["Jwt:Issuer"], ValidAudience = builder.Configuration["Jwt:Audience"],
+        ValidIssuer = jwtIssuer, ValidAudience = jwtAudience,
         IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
     };
     options.Events = new JwtBearerEvents
     {
         OnTokenValidated = async context =>
         {
-            var userId = context.Principal?.FindFirstValue(JwtRegisteredClaimNames.Sub);
+            var userId = context.Principal?.FindFirstValue(JwtRegisteredClaimNames.Sub)
+                ?? context.Principal?.FindFirstValue(ClaimTypes.NameIdentifier);
+            var authLogger = context.HttpContext.RequestServices.GetRequiredService<ILoggerFactory>()
+                .CreateLogger("MusicLibrary.Api.Authentication");
             var userManager = context.HttpContext.RequestServices.GetRequiredService<UserManager<ApplicationUser>>();
             var user = userId is null ? null : await userManager.FindByIdAsync(userId);
             if (user is null || !user.IsActive)
             {
+                authLogger.LogWarning(
+                    "Rejected JWT for {Path}: subject {UserId} was missing or inactive.",
+                    context.HttpContext.Request.Path,
+                    userId ?? "missing");
                 context.Fail("The account is disabled or no longer exists.");
                 return;
             }
 
             var currentRoles = await userManager.GetRolesAsync(user);
             var tokenRoles = context.Principal!.FindAll(ClaimTypes.Role).Select(claim => claim.Value).ToHashSet(StringComparer.Ordinal);
-            if (!tokenRoles.SetEquals(currentRoles)) context.Fail("The account roles have changed. Sign in again.");
+            if (!tokenRoles.SetEquals(currentRoles))
+            {
+                authLogger.LogWarning("Rejected JWT for {Path}: roles changed for user {UserId}.", context.HttpContext.Request.Path, user.Id);
+                context.Fail("The account roles have changed. Sign in again.");
+            }
+        },
+        OnAuthenticationFailed = context =>
+        {
+            var authLogger = context.HttpContext.RequestServices.GetRequiredService<ILoggerFactory>()
+                .CreateLogger("MusicLibrary.Api.Authentication");
+            authLogger.LogWarning(context.Exception, "JWT authentication failed for {Path}.", context.HttpContext.Request.Path);
+            return Task.CompletedTask;
         }
     };
 });

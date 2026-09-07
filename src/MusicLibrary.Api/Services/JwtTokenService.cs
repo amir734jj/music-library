@@ -14,8 +14,8 @@ public interface IJwtTokenService
 public sealed class JwtTokenService(IConfiguration configuration) : IJwtTokenService
 {
     private readonly string _key = configuration["Jwt:Key"] ?? throw new InvalidOperationException("Jwt:Key is required.");
-    private readonly string? _issuer = configuration["Jwt:Issuer"];
-    private readonly string? _audience = configuration["Jwt:Audience"];
+    private readonly string _issuer = configuration["Jwt:Issuer"] ?? throw new InvalidOperationException("Jwt:Issuer is required.");
+    private readonly string _audience = configuration["Jwt:Audience"] ?? throw new InvalidOperationException("Jwt:Audience is required.");
 
     public (string Token, DateTimeOffset ExpiresAt) CreateToken(ApplicationUser user, IReadOnlyCollection<string> roles)
     {

@@ -83,7 +83,7 @@ public static class MusicLibraryApi
     public static async Task<LoginAuthenticationResult> LoginAsync(LoginRequest request, CancellationToken cancellationToken = default)
     {
         using var response = await Client.LoginAsync(request, cancellationToken);
-        EnsureSuccess(response);
+        EnsureSuccess(response, isLoginRequest: true);
         var result = GetContent(response) as LoginAuthenticationResult
             ?? throw new HttpRequestException("The API returned an unexpected login response.");
         return _authentication = result;
@@ -144,12 +144,15 @@ public static class MusicLibraryApi
             ?? throw new HttpRequestException("The API returned an empty JSON response.");
     }
 
-    private static void EnsureSuccess(IApiResponse response)
+    private static void EnsureSuccess(IApiResponse response, bool isLoginRequest = false)
     {
         if (response.IsSuccessful) return;
         if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
         {
-            throw new HttpRequestException("The email or password is incorrect.");
+            if (!isLoginRequest) _authentication = null;
+            throw new HttpRequestException(isLoginRequest
+                ? "The email or password is incorrect."
+                : "Your session is no longer valid. Sign in again.");
         }
 
         var status = response.StatusCode is { } statusCode ? ((int)statusCode).ToString() : "unknown";
