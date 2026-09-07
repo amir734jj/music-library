@@ -4,6 +4,9 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /source
 
 # Install browser build tooling before restore so workload-provided packs are available.
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends python3 python-is-python3 \
+    && rm -rf /var/lib/apt/lists/*
 RUN dotnet workload install wasm-tools --skip-manifest-update
 
 COPY . .
