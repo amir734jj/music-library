@@ -20,7 +20,7 @@ public sealed class GlobalConfigService(IEfRepository repository) : IGlobalConfi
         {
             DirectoryArtifactUrl = Get(rows, "DIRECTORY_ARTIFACT_URL", "https://github.com/amir734jj/shoutcast-directory-crawler/releases/download/latest/shoutcast-directory.json"),
             ProbingEnabled = GetBool(rows, "PROBING_ENABLED"),
-            ProbeConcurrency = GetInt(rows, "PROBE_CONCURRENCY", 25, 1, 100),
+            ProbeConcurrency = GetInt(rows, "PROBE_CONCURRENCY", 5, 1, 100),
             ProbeTimeoutSeconds = GetInt(rows, "PROBE_TIMEOUT_SECONDS", 12, 2, 60),
             ProbeBatchSize = GetInt(rows, "PROBE_BATCH_SIZE", 100, 1, 1000)
         };

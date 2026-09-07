@@ -9,7 +9,7 @@ public sealed class GlobalConfigModel
     public bool ProbingEnabled { get; init; } = false;
 
     [GlobalConfigCol(Name = "PROBE_CONCURRENCY")]
-    public int ProbeConcurrency { get; init; } = 25;
+    public int ProbeConcurrency { get; init; } = 5;
 
     [GlobalConfigCol(Name = "PROBE_TIMEOUT_SECONDS")]
     public int ProbeTimeoutSeconds { get; init; } = 12;

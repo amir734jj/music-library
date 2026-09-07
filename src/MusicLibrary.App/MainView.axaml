@@ -57,7 +57,7 @@
               </Grid>
             </TabItem>
             <TabItem Header="Probing">
-              <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="0,10,0,0">
+              <Grid RowDefinitions="Auto,Auto,Auto,Auto,*" Margin="0,10,0,0">
                 <Grid ColumnDefinitions="*,Auto">
                   <TextBlock Text="Shoutcast probes" FontWeight="SemiBold" VerticalAlignment="Center" />
                   <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
@@ -67,8 +67,9 @@
                   </StackPanel>
                 </Grid>
                 <TextBlock Grid.Row="1" Text="Current worker activity and station metadata health." Opacity="0.65" TextWrapping="Wrap" />
-                <TextBlock Grid.Row="2" Name="ProbeStatus" Opacity="0.7" TextWrapping="Wrap" />
-                <ScrollViewer Grid.Row="3" MinHeight="160" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <TextBox Grid.Row="2" Name="ProbeStationSearchInput" PlaceholderText="Search station, genre, or URL" TextChanged="ProbeStationSearchInput_TextChanged" />
+                <TextBlock Grid.Row="3" Name="ProbeStatus" Opacity="0.7" TextWrapping="Wrap" />
+                <ScrollViewer Grid.Row="4" MinHeight="160" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                   <ItemsControl Name="ProbeStationsList" />
                 </ScrollViewer>
               </Grid>

@@ -1,6 +1,7 @@
 using MusicLibrary.Api.Data;
 using MusicLibrary.Api.Services;
 using MusicLibrary.Contracts;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -12,6 +13,17 @@ namespace MusicLibrary.Api.Controllers;
 [Route("api/auth")]
 public sealed class AuthController(UserManager<ApplicationUser> userManager, IJwtTokenService tokenService, MusicLibraryDbContext dbContext) : MusicLibraryControllerBase
 {
+    [HttpGet("me")]
+    [Authorize]
+    public async Task<ActionResult<UserSummary>> GetCurrentUser()
+    {
+        var user = await userManager.FindByIdAsync(CurrentUserId.ToString());
+        if (user is null) return Unauthorized();
+
+        var roles = await userManager.GetRolesAsync(user);
+        return Ok(new UserSummary(user.Id, user.Email!, user.DisplayName, roles.ToList(), user.IsActive));
+    }
+
     [HttpPost("register")]
     public async Task<ActionResult<AuthenticationResult>> Register(RegisterRequest request, CancellationToken cancellationToken)
     {

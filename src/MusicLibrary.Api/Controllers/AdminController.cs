@@ -64,12 +64,26 @@ public sealed class AdminController(
     }
 
     [HttpGet("probes/status")]
-    public async Task<ActionResult<ProbeStatusSummary>> GetProbeStatus(CancellationToken cancellationToken)
+    public async Task<ActionResult<ProbeStatusSummary>> GetProbeStatus([FromQuery] string? query, CancellationToken cancellationToken)
     {
         var config = await configService.GetAsync(cancellationToken);
         var runtime = probeStatusStore.GetSnapshot();
-        var stations = await repository.For<Station>().GetAll<Station>(
-            orderBy: Ordering<Station>.Asc(station => station.Name));
+        var filters = string.IsNullOrWhiteSpace(query)
+            ? []
+            : new[]
+            {
+                Filter<Station>.LikeAny(
+                    $"%{query.Trim().ToLowerInvariant()}%",
+                    station => station.Name.ToLower(),
+                    station => station.Genre.ToLower(),
+                    station => station.StreamUrl.ToLower())
+            };
+        var stationRepository = repository.For<Station>();
+        var matchingStationCount = await stationRepository.Count(filters);
+        var stations = await stationRepository.GetAll<Station>(
+            filterExprs: filters,
+            orderBy: Ordering<Station>.Desc(station => station.IsProbeEnabled).ThenAsc(station => station.Name),
+            maxResults: 100);
         var stationStatuses = stations.Select(station =>
         {
             var isProbing = runtime.ActiveProbes.TryGetValue(station.Id, out var probeStartedAt);
@@ -91,6 +105,7 @@ public sealed class AdminController(
             runtime.LastBatchStartedAt,
             runtime.LastBatchCompletedAt,
             runtime.ActiveProbes.Count,
+            matchingStationCount,
             stationStatuses));
     }
 

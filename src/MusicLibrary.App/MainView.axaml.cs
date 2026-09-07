@@ -7,6 +7,8 @@ namespace MusicLibrary.App;
 public sealed partial class MainView : UserControl
 {
     private CancellationTokenSource? _librarySearchCancellation;
+    private CancellationTokenSource? _probeSearchCancellation;
+    private CancellationTokenSource? _sessionExpiryCancellation;
     private bool _probingEnabled;
 
     public bool IsBrowserHost { get; }
@@ -24,6 +26,7 @@ public sealed partial class MainView : UserControl
         IsBrowserHost = showAdministration;
         InitializeComponent();
         AuthenticationView.Authenticated += AuthenticationView_Authenticated;
+        MusicLibraryApi.SessionInvalidated += MusicLibraryApi_SessionInvalidated;
         AuthenticationView.IsVisible = IsBrowserHost;
         ApplicationView.IsVisible = !IsBrowserHost;
         SignOutButton.IsVisible = IsBrowserHost;
@@ -41,6 +44,11 @@ public sealed partial class MainView : UserControl
         try
         {
             ApiConnectionStatus.Text = await MusicLibraryApi.IsHealthyAsync() ? "API connected" : "API unavailable";
+            if (IsBrowserHost && await MusicLibraryApi.RestoreSessionAsync() is { } restoredUser)
+            {
+                ShowAuthenticatedApplication(restoredUser);
+                _ = LoadNowPlayingAsync();
+            }
         }
         catch (HttpRequestException)
         {
@@ -81,15 +89,50 @@ public sealed partial class MainView : UserControl
         AdministrationSeparator.IsVisible = isAdmin;
         AdministrationButton.IsVisible = isAdmin;
         ShowLibrary();
+        ScheduleSessionExpiry();
     }
 
     private void SignOut_Click(object? sender, RoutedEventArgs eventArgs)
     {
+        SignOutAndShowAuthentication();
+    }
+
+    private void MusicLibraryApi_SessionInvalidated()
+    {
+        SignOutAndShowAuthentication();
+    }
+
+    private void SignOutAndShowAuthentication()
+    {
         _librarySearchCancellation?.Cancel();
+        _probeSearchCancellation?.Cancel();
+        _sessionExpiryCancellation?.Cancel();
         MusicLibraryApi.SignOut();
         ApplicationView.IsVisible = false;
         AuthenticationView.IsVisible = true;
         AuthenticationView.Reset();
+    }
+
+    private void ScheduleSessionExpiry()
+    {
+        _sessionExpiryCancellation?.Cancel();
+        if (MusicLibraryApi.SessionExpiresAt is not { } expiresAt) return;
+
+        var cancellation = _sessionExpiryCancellation = new CancellationTokenSource();
+        _ = ExpireSessionAsync(expiresAt, cancellation.Token);
+    }
+
+    private async Task ExpireSessionAsync(DateTimeOffset expiresAt, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var remaining = expiresAt - DateTimeOffset.UtcNow;
+            if (remaining > TimeSpan.Zero) await Task.Delay(remaining, cancellationToken);
+            if (!cancellationToken.IsCancellationRequested) SignOutAndShowAuthentication();
+        }
+        catch (OperationCanceledException)
+        {
+        }
     }
 
     private void Library_Click(object? sender, RoutedEventArgs eventArgs)
@@ -179,7 +222,21 @@ public sealed partial class MainView : UserControl
 
     private async void RefreshProbeStatus_Click(object? sender, RoutedEventArgs eventArgs)
     {
-        await LoadProbeStatusAsync();
+        await LoadProbeStatusAsync(ProbeStationSearchInput.Text);
+    }
+
+    private async void ProbeStationSearchInput_TextChanged(object? sender, TextChangedEventArgs eventArgs)
+    {
+        _probeSearchCancellation?.Cancel();
+        var cancellation = _probeSearchCancellation = new CancellationTokenSource();
+        try
+        {
+            await Task.Delay(300, cancellation.Token);
+            await LoadProbeStatusAsync(ProbeStationSearchInput.Text, cancellation.Token);
+        }
+        catch (OperationCanceledException)
+        {
+        }
     }
 
     private async void ImportStations_Click(object? sender, RoutedEventArgs eventArgs)
@@ -271,13 +328,13 @@ public sealed partial class MainView : UserControl
         }
     }
 
-    private async Task LoadProbeStatusAsync()
+    private async Task LoadProbeStatusAsync(string? query = null, CancellationToken cancellationToken = default)
     {
         ProbeStatus.Text = "Loading probe status...";
         ProbeStationsList.ItemsSource = null;
         try
         {
-            var status = await MusicLibraryApi.GetAdminProbeStatusAsync();
+            var status = await MusicLibraryApi.GetAdminProbeStatusAsync(query, cancellationToken);
             _probingEnabled = status.ProbingEnabled;
             ProbeWorkerToggleButton.Content = status.ProbingEnabled ? "Disable worker" : "Enable worker";
             ProbeStationsList.ItemsSource = status.Stations.Select(CreateProbeStatusRow).ToList();
@@ -287,8 +344,15 @@ public sealed partial class MainView : UserControl
                 : status.LastBatchCompletedAt is null || status.LastBatchCompletedAt < status.LastBatchStartedAt
                     ? $"Batch running since {status.LastBatchStartedAt.Value.LocalDateTime:g}."
                     : $"Last batch completed {status.LastBatchCompletedAt.Value.LocalDateTime:g}.";
-            var stationState = status.Stations.Count == 0 ? "No stations imported." : $"{status.Stations.Count} station(s).";
+            var stationState = status.MatchingStationCount == 0
+                ? (string.IsNullOrWhiteSpace(query) ? "No stations imported." : "No matching stations.")
+                : status.MatchingStationCount > status.Stations.Count
+                    ? $"Showing {status.Stations.Count} of {status.MatchingStationCount} matching stations."
+                    : $"{status.MatchingStationCount} station(s).";
             ProbeStatus.Text = $"Worker {workerState} | {status.ActiveProbeCount} querying now | {stationState} {batchState}";
+        }
+        catch (OperationCanceledException)
+        {
         }
         catch (Exception exception)
         {

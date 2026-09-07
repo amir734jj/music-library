@@ -18,6 +18,9 @@ public interface IMusicLibraryApiClient
     [Post("/api/auth/login")]
     Task<ApiResponse<AuthenticationResult>> LoginAsync([Body] LoginRequest request, CancellationToken cancellationToken = default);
 
+    [Get("/api/auth/me")]
+    Task<ApiResponse<UserSummary>> GetCurrentUserAsync([Authorize] string accessToken, CancellationToken cancellationToken = default);
+
     [Get("/api/now-playing")]
     Task<ApiResponse<List<NowPlayingSummary>>> GetNowPlayingAsync([Query] string? query, [Authorize] string accessToken, CancellationToken cancellationToken = default);
 
@@ -25,7 +28,7 @@ public interface IMusicLibraryApiClient
     Task<ApiResponse<List<UserSummary>>> GetAdminUsersAsync([Authorize] string accessToken, CancellationToken cancellationToken = default);
 
     [Get("/api/admin/probes/status")]
-    Task<ApiResponse<ProbeStatusSummary>> GetAdminProbeStatusAsync([Authorize] string accessToken, CancellationToken cancellationToken = default);
+    Task<ApiResponse<ProbeStatusSummary>> GetAdminProbeStatusAsync([Query] string? query, [Authorize] string accessToken, CancellationToken cancellationToken = default);
 
     [Get("/api/admin/config")]
     Task<ApiResponse<GlobalConfigModel>> GetAdminConfigAsync([Authorize] string accessToken, CancellationToken cancellationToken = default);
@@ -48,13 +51,21 @@ public interface IMusicLibraryApiClient
 
 public static class MusicLibraryApi
 {
+    private static readonly Newtonsoft.Json.JsonSerializerSettings SerializerSettings = new()
+    {
+        ContractResolver = new CamelCasePropertyNamesContractResolver(),
+        Converters = { new StringEnumConverter() }
+    };
     private static Uri? _baseAddress;
     private static IMusicLibraryApiClient? _client;
     private static LoginAuthenticationResult? _authentication;
 
+    public static event Action? SessionInvalidated;
+
     public static bool IsConfigured => _client is not null;
     public static bool IsAuthenticated => _authentication is not null && _authentication.ExpiresAt > DateTimeOffset.UtcNow;
     public static UserSummary? CurrentUser => IsAuthenticated ? _authentication!.User : null;
+    public static DateTimeOffset? SessionExpiresAt => _authentication?.ExpiresAt;
 
     public static Uri BaseAddress => _baseAddress ?? throw new InvalidOperationException("The Music Library API endpoint has not been configured.");
 
@@ -69,12 +80,7 @@ public static class MusicLibraryApi
         }
 
         _baseAddress = baseAddress.AbsoluteUri.EndsWith('/') ? baseAddress : new Uri($"{baseAddress.AbsoluteUri}/");
-        var serializerSettings = new Newtonsoft.Json.JsonSerializerSettings
-        {
-            ContractResolver = new CamelCasePropertyNamesContractResolver(),
-            Converters = { new StringEnumConverter() }
-        };
-        var refitSettings = new RefitSettings(new NewtonsoftJsonContentSerializer(serializerSettings));
+        var refitSettings = new RefitSettings(new NewtonsoftJsonContentSerializer(SerializerSettings));
         _client = RestService.ForGenerated<IMusicLibraryApiClient>(new HttpClient { BaseAddress = BaseAddress }, refitSettings);
     }
 
@@ -98,12 +104,44 @@ public static class MusicLibraryApi
         EnsureSuccess(response, isLoginRequest: true);
         var result = GetContent(response) as LoginAuthenticationResult
             ?? throw new HttpRequestException("The API returned an unexpected login response.");
-        return _authentication = result;
+        _authentication = result;
+        SaveAuthenticationSession();
+        return result;
     }
 
     public static void SignOut()
     {
         _authentication = null;
+        AuthenticationSessionStorage.Save?.Invoke(null);
+    }
+
+    public static async Task<UserSummary?> RestoreSessionAsync(CancellationToken cancellationToken = default)
+    {
+        var serialized = AuthenticationSessionStorage.Load?.Invoke();
+        if (string.IsNullOrWhiteSpace(serialized)) return null;
+
+        try
+        {
+            var restored = JsonConvert.DeserializeObject<LoginAuthenticationResult>(serialized, SerializerSettings);
+            if (restored is null || restored.ExpiresAt <= DateTimeOffset.UtcNow)
+            {
+                SignOut();
+                return null;
+            }
+
+            _authentication = restored;
+            using var response = await Client.GetCurrentUserAsync(restored.AccessToken, cancellationToken);
+            EnsureSuccess(response);
+            var user = GetContent(response);
+            _authentication = restored with { User = user };
+            SaveAuthenticationSession();
+            return user;
+        }
+        catch
+        {
+            SignOut();
+            return null;
+        }
     }
 
     public static async Task<IReadOnlyCollection<UserSummary>> GetAdminUsersAsync(CancellationToken cancellationToken = default)
@@ -122,10 +160,10 @@ public static class MusicLibraryApi
         return GetContent(response);
     }
 
-    public static async Task<ProbeStatusSummary> GetAdminProbeStatusAsync(CancellationToken cancellationToken = default)
+    public static async Task<ProbeStatusSummary> GetAdminProbeStatusAsync(string? query = null, CancellationToken cancellationToken = default)
     {
         if (!IsAuthenticated) throw new InvalidOperationException("An authenticated session is required.");
-        using var response = await Client.GetAdminProbeStatusAsync(_authentication!.AccessToken, cancellationToken);
+        using var response = await Client.GetAdminProbeStatusAsync(query, _authentication!.AccessToken, cancellationToken);
         EnsureSuccess(response);
         return GetContent(response);
     }
@@ -205,6 +243,14 @@ public static class MusicLibraryApi
 
     private static IMusicLibraryApiClient Client => _client ?? throw new InvalidOperationException("The Music Library API endpoint has not been configured.");
 
+    private static void SaveAuthenticationSession()
+    {
+        if (_authentication is not null)
+        {
+            AuthenticationSessionStorage.Save?.Invoke(JsonConvert.SerializeObject(_authentication, SerializerSettings));
+        }
+    }
+
     private static T GetContent<T>(ApiResponse<T> response)
     {
         return response.Content
@@ -216,7 +262,11 @@ public static class MusicLibraryApi
         if (response.IsSuccessful) return;
         if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
         {
-            if (!isLoginRequest) _authentication = null;
+            if (!isLoginRequest)
+            {
+                SignOut();
+                SessionInvalidated?.Invoke();
+            }
             throw new HttpRequestException(isLoginRequest
                 ? "The email or password is incorrect."
                 : "Your session is no longer valid. Sign in again.");
@@ -247,4 +297,10 @@ public static class MusicLibraryApi
 
         throw new HttpRequestException($"The API request failed with status {status}.", response.Error);
     }
+}
+
+public static class AuthenticationSessionStorage
+{
+    public static Func<string?>? Load { get; set; }
+    public static Action<string?>? Save { get; set; }
 }
