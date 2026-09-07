@@ -62,7 +62,7 @@
                   <TextBlock Text="Shoutcast probes" FontWeight="SemiBold" VerticalAlignment="Center" />
                   <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
                     <Button Content="Import stations" Click="ImportStations_Click" />
-                    <Button Name="ProbeWorkerToggleButton" Content="Enable worker" Click="ToggleProbeWorker_Click" />
+                    <Button Name="ProbeWorkerToggleButton" Content="Loading worker..." IsEnabled="False" Click="ToggleProbeWorker_Click" />
                     <Button Content="Refresh status" Click="RefreshProbeStatus_Click" />
                   </StackPanel>
                 </Grid>

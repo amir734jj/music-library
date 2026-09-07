@@ -256,6 +256,7 @@ public sealed partial class MainView : UserControl
 
     private async void ToggleProbeWorker_Click(object? sender, RoutedEventArgs eventArgs)
     {
+        ProbeWorkerToggleButton.IsEnabled = false;
         ProbeStatus.Text = _probingEnabled ? "Disabling probe worker..." : "Enabling probe worker...";
         try
         {
@@ -265,6 +266,7 @@ public sealed partial class MainView : UserControl
         catch (Exception exception)
         {
             ProbeStatus.Text = exception.Message;
+            ProbeWorkerToggleButton.IsEnabled = true;
         }
     }
 
@@ -317,6 +319,7 @@ public sealed partial class MainView : UserControl
             var config = await MusicLibraryApi.GetGlobalConfigAsync();
             ConfigDirectoryArtifactUrlInput.Text = config.DirectoryArtifactUrl;
             ConfigProbingEnabledInput.IsChecked = config.ProbingEnabled;
+            SetProbingEnabledState(config.ProbingEnabled);
             ConfigProbeConcurrencyInput.Value = config.ProbeConcurrency;
             ConfigProbeTimeoutInput.Value = config.ProbeTimeoutSeconds;
             ConfigProbeBatchSizeInput.Value = config.ProbeBatchSize;
@@ -335,8 +338,7 @@ public sealed partial class MainView : UserControl
         try
         {
             var status = await MusicLibraryApi.GetAdminProbeStatusAsync(query, cancellationToken);
-            _probingEnabled = status.ProbingEnabled;
-            ProbeWorkerToggleButton.Content = status.ProbingEnabled ? "Disable worker" : "Enable worker";
+            SetProbingEnabledState(status.ProbingEnabled);
             ProbeStationsList.ItemsSource = status.Stations.Select(CreateProbeStatusRow).ToList();
             var workerState = status.ProbingEnabled ? "enabled" : "disabled";
             var batchState = status.LastBatchStartedAt is null
@@ -358,6 +360,13 @@ public sealed partial class MainView : UserControl
         {
             ProbeStatus.Text = exception.Message;
         }
+    }
+
+    private void SetProbingEnabledState(bool enabled)
+    {
+        _probingEnabled = enabled;
+        ProbeWorkerToggleButton.Content = enabled ? "Disable worker" : "Enable worker";
+        ProbeWorkerToggleButton.IsEnabled = true;
     }
 
     private Control CreateProbeStatusRow(StationProbeStatusSummary station)
