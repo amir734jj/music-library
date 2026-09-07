@@ -79,9 +79,24 @@ public sealed partial class MainView : UserControl
         {
             var email = AuthEmailInput.Text?.Trim() ?? string.Empty;
             var password = AuthPasswordInput.Text ?? string.Empty;
-            var authentication = register
-                ? await MusicLibraryApi.RegisterAsync(new RegisterRequest(email, password, AuthDisplayNameInput.Text?.Trim()))
-                : await MusicLibraryApi.LoginAsync(new LoginRequest(email, password));
+            if (register)
+            {
+                var passwordConfirmation = AuthPasswordConfirmationInput.Text ?? string.Empty;
+                if (password != passwordConfirmation) throw new InvalidOperationException("Passwords do not match.");
+
+                var registration = await MusicLibraryApi.RegisterAsync(
+                    new RegisterRequest(email, password, passwordConfirmation, AuthDisplayNameInput.Text?.Trim()));
+                AuthPasswordInput.Text = string.Empty;
+                AuthPasswordConfirmationInput.Text = string.Empty;
+                AuthDisplayNameInput.Text = string.Empty;
+                AuthPasswordInput.Focus();
+                AuthenticationStatus.Text = registration.User.IsActive
+                    ? "Account created. Sign in to continue."
+                    : "Account created. An administrator must enable it before you can sign in.";
+                return;
+            }
+
+            var authentication = await MusicLibraryApi.LoginAsync(new LoginRequest(email, password));
             ShowAuthenticatedApplication(authentication.User);
         }
         catch (Exception exception)
@@ -106,6 +121,7 @@ public sealed partial class MainView : UserControl
     {
         MusicLibraryApi.SignOut();
         AuthPasswordInput.Text = string.Empty;
+        AuthPasswordConfirmationInput.Text = string.Empty;
         ApplicationView.IsVisible = false;
         AuthenticationView.IsVisible = true;
         AuthenticationStatus.Text = string.Empty;
@@ -126,13 +142,49 @@ public sealed partial class MainView : UserControl
     {
         LibraryView.IsVisible = false;
         AdministrationView.IsVisible = true;
+        await LoadAdminUsersAsync();
+    }
+
+    private async Task LoadAdminUsersAsync()
+    {
         AdministrationStatus.Text = "Loading users...";
         AdminUsersList.ItemsSource = null;
         try
         {
             var users = await MusicLibraryApi.GetAdminUsersAsync();
-            AdminUsersList.ItemsSource = users.Select(user => $"{user.DisplayName ?? user.Email}  |  {string.Join(", ", user.Roles)}  |  {(user.IsActive ? "Active" : "Inactive")}");
+            AdminUsersList.ItemsSource = users.Select(CreateAdminUserRow).ToList();
             AdministrationStatus.Text = users.Count == 0 ? "No accounts found." : $"{users.Count} account(s)";
+        }
+        catch (Exception exception)
+        {
+            AdministrationStatus.Text = exception.Message;
+        }
+    }
+
+    private Control CreateAdminUserRow(UserSummary user)
+    {
+        var row = new StackPanel { Orientation = Avalonia.Layout.Orientation.Horizontal, Spacing = 12 };
+        row.Children.Add(new TextBlock
+        {
+            Text = $"{user.DisplayName ?? user.Email}  |  {string.Join(", ", user.Roles)}  |  {(user.IsActive ? "Active" : "Inactive")}",
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+        });
+        if (!user.IsActive)
+        {
+            var enableButton = new Button { Content = "Enable" };
+            enableButton.Click += async (_, _) => await EnableUserAsync(user);
+            row.Children.Add(enableButton);
+        }
+        return row;
+    }
+
+    private async Task EnableUserAsync(UserSummary user)
+    {
+        AdministrationStatus.Text = $"Enabling {user.DisplayName ?? user.Email}...";
+        try
+        {
+            await MusicLibraryApi.EnableAdminUserAsync(user);
+            await LoadAdminUsersAsync();
         }
         catch (Exception exception)
         {

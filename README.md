@@ -12,7 +12,7 @@ The API owns radio probing. It is disabled by default and only probes stations e
 - `MusicLibrary.App.Android`: Android host.
 - `MusicLibrary.App.Browser`: WebAssembly host for the user and administrator web experience.
 
-Set `DATABASE_URL` and replace `Jwt:Key` before starting the API. The first account created through `POST /api/auth/register` is automatically granted the `Admin` role; that admin can promote other users to `Admin` later via `PUT /api/admin/users/{id}`.
+Set `DATABASE_URL` and replace `Jwt:Key` before starting the API. The first account created through `POST /api/auth/register` is enabled automatically and granted the `Admin` role. Later registrations remain disabled until an administrator enables them; administrators can also assign roles through `PUT /api/admin/users/{id}`.
 
 ## Building locally
 

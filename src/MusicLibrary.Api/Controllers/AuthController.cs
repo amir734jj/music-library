@@ -15,12 +15,25 @@ public sealed class AuthController(UserManager<ApplicationUser> userManager, IJw
     [HttpPost("register")]
     public async Task<ActionResult<AuthenticationResult>> Register(RegisterRequest request, CancellationToken cancellationToken)
     {
+        if (request.Password != request.PasswordConfirmation)
+        {
+            ModelState.AddModelError(nameof(request.PasswordConfirmation), "Passwords do not match.");
+            return ValidationProblem(ModelState);
+        }
+
         await using var transaction = await dbContext.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
         await dbContext.Database.ExecuteSqlRawAsync("SELECT pg_advisory_xact_lock(202609070001)", cancellationToken);
 
         // The first registered account bootstraps itself as the administrator.
         var isFirstUser = !await userManager.Users.AnyAsync(cancellationToken);
-        var user = new ApplicationUser { Id = Guid.NewGuid(), UserName = request.Email, Email = request.Email, DisplayName = request.DisplayName };
+        var user = new ApplicationUser
+        {
+            Id = Guid.NewGuid(),
+            UserName = request.Email,
+            Email = request.Email,
+            DisplayName = request.DisplayName,
+            IsActive = isFirstUser
+        };
         var result = await userManager.CreateAsync(user, request.Password);
         if (!result.Succeeded) return IdentityFailure(result.Errors);
 
@@ -29,16 +42,16 @@ public sealed class AuthController(UserManager<ApplicationUser> userManager, IJw
         if (!roleResult.Succeeded) return IdentityFailure(roleResult.Errors);
 
         var summary = new UserSummary(user.Id, user.Email!, user.DisplayName, [role], user.IsActive);
-        var (token, expiresAt) = tokenService.CreateToken(user, [role]);
         await transaction.CommitAsync(cancellationToken);
-        return Created($"/api/admin/users/{user.Id}", new RegistrationAuthenticationResult(token, expiresAt, summary));
+        return Created($"/api/admin/users/{user.Id}", new RegistrationAuthenticationResult(summary));
     }
 
     [HttpPost("login")]
     public async Task<ActionResult<AuthenticationResult>> Login(LoginRequest request)
     {
         var user = await userManager.FindByEmailAsync(request.Email);
-        if (user is null || !user.IsActive || !await userManager.CheckPasswordAsync(user, request.Password)) return Unauthorized();
+        if (user is null || !await userManager.CheckPasswordAsync(user, request.Password)) return Unauthorized();
+        if (!user.IsActive) return Problem(statusCode: StatusCodes.Status403Forbidden, title: "This account has not been enabled by an administrator.");
 
         user.LastLoginAt = DateTimeOffset.UtcNow;
         await userManager.UpdateAsync(user);

@@ -20,13 +20,16 @@ public interface IMusicLibraryApiClient
 
     [Get("/api/admin/users")]
     Task<ApiResponse<List<UserSummary>>> GetAdminUsersAsync([Authorize] string accessToken, CancellationToken cancellationToken = default);
+
+    [Put("/api/admin/users/{id}")]
+    Task<IApiResponse> UpdateAdminUserAsync(Guid id, [Body] UpdateUserRequest request, [Authorize] string accessToken, CancellationToken cancellationToken = default);
 }
 
 public static class MusicLibraryApi
 {
     private static Uri? _baseAddress;
     private static IMusicLibraryApiClient? _client;
-    private static AuthenticationResult? _authentication;
+    private static LoginAuthenticationResult? _authentication;
 
     public static bool IsConfigured => _client is not null;
     public static bool IsAuthenticated => _authentication is not null && _authentication.ExpiresAt > DateTimeOffset.UtcNow;
@@ -60,18 +63,21 @@ public static class MusicLibraryApi
         return response.IsSuccessful;
     }
 
-    public static async Task<AuthenticationResult> RegisterAsync(RegisterRequest request, CancellationToken cancellationToken = default)
+    public static async Task<RegistrationAuthenticationResult> RegisterAsync(RegisterRequest request, CancellationToken cancellationToken = default)
     {
         using var response = await Client.RegisterAsync(request, cancellationToken);
         EnsureSuccess(response);
-        return _authentication = GetContent(response);
+        return GetContent(response) as RegistrationAuthenticationResult
+            ?? throw new HttpRequestException("The API returned an unexpected registration response.");
     }
 
-    public static async Task<AuthenticationResult> LoginAsync(LoginRequest request, CancellationToken cancellationToken = default)
+    public static async Task<LoginAuthenticationResult> LoginAsync(LoginRequest request, CancellationToken cancellationToken = default)
     {
         using var response = await Client.LoginAsync(request, cancellationToken);
         EnsureSuccess(response);
-        return _authentication = GetContent(response);
+        var result = GetContent(response) as LoginAuthenticationResult
+            ?? throw new HttpRequestException("The API returned an unexpected login response.");
+        return _authentication = result;
     }
 
     public static void SignOut()
@@ -85,6 +91,17 @@ public static class MusicLibraryApi
         using var response = await Client.GetAdminUsersAsync(_authentication!.AccessToken, cancellationToken);
         EnsureSuccess(response);
         return GetContent(response);
+    }
+
+    public static async Task EnableAdminUserAsync(UserSummary user, CancellationToken cancellationToken = default)
+    {
+        if (!IsAuthenticated) throw new InvalidOperationException("An authenticated session is required.");
+        using var response = await Client.UpdateAdminUserAsync(
+            user.Id,
+            new UpdateUserRequest(user.DisplayName, IsActive: true, Role: null),
+            _authentication!.AccessToken,
+            cancellationToken);
+        EnsureSuccess(response);
     }
 
     private static IMusicLibraryApiClient Client => _client ?? throw new InvalidOperationException("The Music Library API endpoint has not been configured.");

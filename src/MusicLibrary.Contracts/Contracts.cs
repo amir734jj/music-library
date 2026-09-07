@@ -4,7 +4,7 @@ using Newtonsoft.Json.Converters;
 
 namespace MusicLibrary.Contracts;
 
-public sealed record RegisterRequest(string Email, string Password, string? DisplayName);
+public sealed record RegisterRequest(string Email, string Password, string PasswordConfirmation, string? DisplayName);
 public sealed record LoginRequest(string Email, string Password);
 
 [JsonConverter(typeof(StringEnumConverter))]
@@ -17,13 +17,13 @@ public enum AuthenticationResultType
 [JsonConverter(typeof(JsonSubtypes), nameof(Type))]
 [JsonSubtypes.KnownSubType(typeof(LoginAuthenticationResult), AuthenticationResultType.Login)]
 [JsonSubtypes.KnownSubType(typeof(RegistrationAuthenticationResult), AuthenticationResultType.Registration)]
-public abstract record AuthenticationResult(AuthenticationResultType Type, string AccessToken, DateTimeOffset ExpiresAt, UserSummary User);
+public abstract record AuthenticationResult(AuthenticationResultType Type, UserSummary User);
 
 public sealed record LoginAuthenticationResult(string AccessToken, DateTimeOffset ExpiresAt, UserSummary User)
-	: AuthenticationResult(AuthenticationResultType.Login, AccessToken, ExpiresAt, User);
+	: AuthenticationResult(AuthenticationResultType.Login, User);
 
-public sealed record RegistrationAuthenticationResult(string AccessToken, DateTimeOffset ExpiresAt, UserSummary User)
-	: AuthenticationResult(AuthenticationResultType.Registration, AccessToken, ExpiresAt, User);
+public sealed record RegistrationAuthenticationResult(UserSummary User)
+	: AuthenticationResult(AuthenticationResultType.Registration, User);
 
 public sealed record UserSummary(Guid Id, string Email, string? DisplayName, IReadOnlyCollection<string> Roles, bool IsActive);
 public sealed record StationSummary(Guid Id, string Name, string Genre, string StreamUrl, bool IsProbeEnabled, DateTimeOffset? LastProbedAt);
