@@ -1,0 +1,116 @@
+name: Latest application release
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: application-latest-release
+  cancel-in-progress: true
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install Android workload
+        run: dotnet workload install android --skip-manifest-update
+
+      - name: Build APK (debug-signed)
+        shell: bash
+        run: |
+          dotnet publish src/MusicLibrary.App.Android/MusicLibrary.App.Android.csproj \
+            --configuration Release \
+            --framework net10.0-android36.0 \
+            --runtime android-arm64 \
+            --output artifacts/android \
+            -p:AndroidPackageFormat=apk
+          find artifacts/android -type f -name '*.apk' -print -quit | xargs -I{} cp {} artifacts/music-library-latest.apk
+
+      - name: Upload workflow APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: music-library-latest-apk
+          path: artifacts/music-library-latest.apk
+          if-no-files-found: error
+
+  build-desktop:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            runtime: linux-x64
+            archive: music-library-linux-x64.tar.gz
+          - os: windows-latest
+            runtime: win-x64
+            archive: music-library-windows-x64.zip
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Publish desktop application
+        shell: pwsh
+        run: |
+          $publishDirectory = "artifacts/${{ matrix.runtime }}/publish"
+          dotnet publish src/MusicLibrary.App.Desktop/MusicLibrary.App.Desktop.csproj `
+            --configuration Release `
+            --runtime ${{ matrix.runtime }} `
+            --self-contained true `
+            --output $publishDirectory `
+            -p:PublishSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true
+
+          if ('${{ runner.os }}' -eq 'Windows') {
+            Compress-Archive -Path "$publishDirectory/*" -DestinationPath "artifacts/${{ matrix.archive }}"
+          } else {
+            tar -czf "artifacts/${{ matrix.archive }}" -C $publishDirectory .
+          }
+
+      - name: Upload desktop artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: music-library-${{ matrix.runtime }}
+          path: artifacts/${{ matrix.archive }}
+          if-no-files-found: error
+
+  create-release:
+    needs: [build-android, build-desktop]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@v5
+        with:
+          path: artifacts/release
+          merge-multiple: true
+
+      - name: Create or update latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest artifacts/release/* \
+            --target "$GITHUB_SHA" \
+            --title "Latest" \
+            --prerelease \
+            --notes "Latest Android, Windows, and Linux application builds."

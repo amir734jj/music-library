@@ -1,8 +1,30 @@
+using JsonSubTypes;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Converters;
+
 namespace MusicLibrary.Contracts;
 
 public sealed record RegisterRequest(string Email, string Password, string? DisplayName);
 public sealed record LoginRequest(string Email, string Password);
-public sealed record AuthResponse(string AccessToken, DateTimeOffset ExpiresAt, UserSummary User);
+
+[JsonConverter(typeof(StringEnumConverter))]
+public enum AuthenticationResultType
+{
+	Login,
+	Registration
+}
+
+[JsonConverter(typeof(JsonSubtypes), nameof(Type))]
+[JsonSubtypes.KnownSubType(typeof(LoginAuthenticationResult), AuthenticationResultType.Login)]
+[JsonSubtypes.KnownSubType(typeof(RegistrationAuthenticationResult), AuthenticationResultType.Registration)]
+public abstract record AuthenticationResult(AuthenticationResultType Type, string AccessToken, DateTimeOffset ExpiresAt, UserSummary User);
+
+public sealed record LoginAuthenticationResult(string AccessToken, DateTimeOffset ExpiresAt, UserSummary User)
+	: AuthenticationResult(AuthenticationResultType.Login, AccessToken, ExpiresAt, User);
+
+public sealed record RegistrationAuthenticationResult(string AccessToken, DateTimeOffset ExpiresAt, UserSummary User)
+	: AuthenticationResult(AuthenticationResultType.Registration, AccessToken, ExpiresAt, User);
+
 public sealed record UserSummary(Guid Id, string Email, string? DisplayName, IReadOnlyCollection<string> Roles, bool IsActive);
 public sealed record StationSummary(Guid Id, string Name, string Genre, string StreamUrl, bool IsProbeEnabled, DateTimeOffset? LastProbedAt);
 public sealed record NowPlayingSummary(Guid StationId, string StationName, string? Artist, string? Title, string RawMetadata, DateTimeOffset ObservedAt, decimal Confidence);

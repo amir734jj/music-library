@@ -1,30 +1,129 @@
+using MusicLibrary.Contracts;
+using Newtonsoft.Json.Converters;
+using Newtonsoft.Json.Linq;
+using Newtonsoft.Json.Serialization;
+using Refit;
+
 namespace MusicLibrary.App;
+
+public interface IMusicLibraryApiClient
+{
+    [Get("/api/health")]
+    Task<IApiResponse> GetHealthAsync(CancellationToken cancellationToken = default);
+
+    [Post("/api/auth/register")]
+    Task<ApiResponse<AuthenticationResult>> RegisterAsync([Body] RegisterRequest request, CancellationToken cancellationToken = default);
+
+    [Post("/api/auth/login")]
+    Task<ApiResponse<AuthenticationResult>> LoginAsync([Body] LoginRequest request, CancellationToken cancellationToken = default);
+
+    [Get("/api/admin/users")]
+    Task<ApiResponse<List<UserSummary>>> GetAdminUsersAsync([Authorize] string accessToken, CancellationToken cancellationToken = default);
+}
 
 public static class MusicLibraryApi
 {
     private static Uri? _baseAddress;
+    private static IMusicLibraryApiClient? _client;
+    private static AuthenticationResult? _authentication;
 
-    public static bool IsConfigured => _baseAddress is not null;
+    public static bool IsConfigured => _client is not null;
+    public static bool IsAuthenticated => _authentication is not null && _authentication.ExpiresAt > DateTimeOffset.UtcNow;
+    public static UserSummary? CurrentUser => IsAuthenticated ? _authentication!.User : null;
 
     public static Uri BaseAddress => _baseAddress ?? throw new InvalidOperationException("The Music Library API endpoint has not been configured.");
 
     public static void Configure(Uri baseAddress)
     {
         ArgumentNullException.ThrowIfNull(baseAddress);
-        if (!baseAddress.IsAbsoluteUri || baseAddress.Scheme != Uri.UriSchemeHttps)
+        var isSecure = baseAddress.Scheme == Uri.UriSchemeHttps;
+        var isLocalDevelopment = baseAddress.Scheme == Uri.UriSchemeHttp && baseAddress.IsLoopback;
+        if (!baseAddress.IsAbsoluteUri || (!isSecure && !isLocalDevelopment))
         {
-            throw new ArgumentException("The Music Library API endpoint must be an absolute HTTPS URL.", nameof(baseAddress));
+            throw new ArgumentException("The Music Library API endpoint must use HTTPS, except on loopback addresses.", nameof(baseAddress));
         }
 
         _baseAddress = baseAddress.AbsoluteUri.EndsWith('/') ? baseAddress : new Uri($"{baseAddress.AbsoluteUri}/");
+        var serializerSettings = new Newtonsoft.Json.JsonSerializerSettings
+        {
+            ContractResolver = new CamelCasePropertyNamesContractResolver(),
+            Converters = { new StringEnumConverter() }
+        };
+        var refitSettings = new RefitSettings(new NewtonsoftJsonContentSerializer(serializerSettings));
+        _client = RestService.ForGenerated<IMusicLibraryApiClient>(new HttpClient { BaseAddress = BaseAddress }, refitSettings);
     }
-
-    public static HttpClient CreateClient() => new() { BaseAddress = BaseAddress };
 
     public static async Task<bool> IsHealthyAsync(CancellationToken cancellationToken = default)
     {
-        using var client = CreateClient();
-        using var response = await client.GetAsync("api/health", cancellationToken);
-        return response.IsSuccessStatusCode;
+        using var response = await Client.GetHealthAsync(cancellationToken);
+        return response.IsSuccessful;
+    }
+
+    public static async Task<AuthenticationResult> RegisterAsync(RegisterRequest request, CancellationToken cancellationToken = default)
+    {
+        using var response = await Client.RegisterAsync(request, cancellationToken);
+        EnsureSuccess(response);
+        return _authentication = GetContent(response);
+    }
+
+    public static async Task<AuthenticationResult> LoginAsync(LoginRequest request, CancellationToken cancellationToken = default)
+    {
+        using var response = await Client.LoginAsync(request, cancellationToken);
+        EnsureSuccess(response);
+        return _authentication = GetContent(response);
+    }
+
+    public static void SignOut()
+    {
+        _authentication = null;
+    }
+
+    public static async Task<IReadOnlyCollection<UserSummary>> GetAdminUsersAsync(CancellationToken cancellationToken = default)
+    {
+        if (!IsAuthenticated) throw new InvalidOperationException("An authenticated session is required.");
+        using var response = await Client.GetAdminUsersAsync(_authentication!.AccessToken, cancellationToken);
+        EnsureSuccess(response);
+        return GetContent(response);
+    }
+
+    private static IMusicLibraryApiClient Client => _client ?? throw new InvalidOperationException("The Music Library API endpoint has not been configured.");
+
+    private static T GetContent<T>(ApiResponse<T> response)
+    {
+        return response.Content
+            ?? throw new HttpRequestException("The API returned an empty JSON response.");
+    }
+
+    private static void EnsureSuccess(IApiResponse response)
+    {
+        if (response.IsSuccessful) return;
+        if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+        {
+            throw new HttpRequestException("The email or password is incorrect.");
+        }
+
+        var body = (response.Error as ApiException)?.Content;
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            throw new HttpRequestException($"The API request failed with status {(int)response.StatusCode}.", response.Error);
+        }
+
+        try
+        {
+            var document = JObject.Parse(body);
+            if (document["errors"] is JObject errors)
+            {
+                var messages = errors.Properties()
+                    .SelectMany(error => error.Value.Values<string>())
+                    .Where(message => !string.IsNullOrWhiteSpace(message));
+                throw new HttpRequestException(string.Join(" ", messages));
+            }
+            if (document.Value<string>("title") is { } title) throw new HttpRequestException(title);
+        }
+        catch (JsonReaderException)
+        {
+        }
+
+        throw new HttpRequestException($"The API request failed with status {(int)response.StatusCode}.", response.Error);
     }
 }

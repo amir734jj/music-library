@@ -54,9 +54,9 @@ dotnet build src/MusicLibrary.App.Android/MusicLibrary.App.Android.csproj \
   -p:JavaSdkDirectory=/usr/lib/jvm/java-21-openjdk-amd64
 ```
 
-## Android release
+## Application release
 
-The GitHub Actions workflow in `.github/workflows/android-release.yml` builds a debug-signed Android APK on every `master` push and updates the single prerelease tag named `latest`. Because the APK is debug-signed (not a persistent release keystore), it installs with Android's "unknown/untrusted developer" warning and updates may require uninstalling the previous build first.
+The GitHub Actions workflow in `.github/workflows/application-release.yml` builds a debug-signed Android APK and self-contained Windows x64 and Linux x64 desktop bundles on every `master` push. After every platform succeeds, it updates the single prerelease tag named `latest` with all three downloads. Because the APK is debug-signed (not a persistent release keystore), it installs with Android's "unknown/untrusted developer" warning and updates may require uninstalling the previous build first.
 
 ## Web container
 

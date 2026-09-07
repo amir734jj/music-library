@@ -3,6 +3,7 @@ using System.Security.Claims;
 using System.Text;
 using MusicLibrary.Api.Data;
 using MusicLibrary.Api.Infrastructure;
+using MusicLibrary.Api.Migrations;
 using MusicLibrary.Api.Services;
 using MusicLibrary.Api.Workers;
 using MusicLibrary.Contracts;
@@ -11,7 +12,10 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.AspNetCore.Http.Extensions;
+using Newtonsoft.Json.Converters;
+using Newtonsoft.Json.Serialization;
 using EfCoreRepository.Extensions;
+using FluentMigrator.Runner;
 using Serilog;
 using StreamRipper.Extensions;
 
@@ -27,6 +31,10 @@ var connectionString = DatabaseUrlConverter.ToConnectionString(databaseUrl);
 var jwtKey = builder.Configuration["Jwt:Key"] ?? throw new InvalidOperationException("Jwt:Key is required.");
 
 builder.Services.AddDbContext<MusicLibraryDbContext>(options => options.UseNpgsql(connectionString));
+builder.Services.AddFluentMigratorCore().ConfigureRunner(runner => runner
+    .AddPostgres()
+    .WithGlobalConnectionString(connectionString)
+    .ScanIn(typeof(InitialDatabase).Assembly).For.Migrations());
 builder.Services.AddEfRepository<MusicLibraryDbContext>(options => options.DefaultProfiles());
 builder.Services.AddIdentity<ApplicationUser, ApplicationRole>(options =>
     {
@@ -35,14 +43,23 @@ builder.Services.AddIdentity<ApplicationUser, ApplicationRole>(options =>
     })
     .AddEntityFrameworkStores<MusicLibraryDbContext>()
     .AddDefaultTokenProviders();
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(options => options.TokenValidationParameters = new TokenValidationParameters
+builder.Services.AddAuthentication(options =>
+{
+    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultForbidScheme = JwtBearerDefaults.AuthenticationScheme;
+}).AddJwtBearer(options => options.TokenValidationParameters = new TokenValidationParameters
 {
     ValidateIssuer = true, ValidateAudience = true, ValidateLifetime = true, ValidateIssuerSigningKey = true,
     ValidIssuer = builder.Configuration["Jwt:Issuer"], ValidAudience = builder.Configuration["Jwt:Audience"],
     IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
 });
 builder.Services.AddAuthorization();
-builder.Services.AddControllers();
+builder.Services.AddControllers().AddNewtonsoftJson(options =>
+{
+    options.SerializerSettings.ContractResolver = new CamelCasePropertyNamesContractResolver();
+    options.SerializerSettings.Converters.Add(new StringEnumConverter());
+});
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 // StationDirectoryImportService is registered via AddHttpClient below, so exclude it from scanning.
@@ -95,9 +112,8 @@ else
 
 using (var scope = app.Services.CreateScope())
 {
-    app.Logger.LogInformation("Initializing Music Library PostgreSQL database and roles.");
-    var dbContext = scope.ServiceProvider.GetRequiredService<MusicLibraryDbContext>();
-    await dbContext.Database.EnsureCreatedAsync();
+    app.Logger.LogInformation("Applying Music Library PostgreSQL migrations and roles.");
+    scope.ServiceProvider.GetRequiredService<IMigrationRunner>().MigrateUp();
     var roles = scope.ServiceProvider.GetRequiredService<RoleManager<ApplicationRole>>();
     foreach (var name in new[] { Roles.Admin, Roles.User }) if (!await roles.RoleExistsAsync(name)) await roles.CreateAsync(new ApplicationRole { Id = Guid.NewGuid(), Name = name });
     app.Logger.LogInformation("Music Library database and roles are ready.");

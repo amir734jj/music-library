@@ -1,7 +1,8 @@
-using System.Text.Json;
 using MusicLibrary.Api.Data;
 using MusicLibrary.Contracts;
 using EfCoreRepository.Interfaces;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Serialization;
 
 namespace MusicLibrary.Api.Services;
 
@@ -23,7 +24,10 @@ public sealed class StationDirectoryImportService(HttpClient httpClient, IGlobal
         using var response = await httpClient.GetAsync(directoryUri, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         response.EnsureSuccessStatusCode();
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-        var catalog = await JsonSerializer.DeserializeAsync<Dictionary<string, List<DirectoryStation>>>(stream, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }, cancellationToken) ?? [];
+        using var streamReader = new StreamReader(stream);
+        using var jsonReader = new JsonTextReader(streamReader);
+        var serializer = JsonSerializer.CreateDefault(new JsonSerializerSettings { ContractResolver = new CamelCasePropertyNamesContractResolver() });
+        var catalog = serializer.Deserialize<Dictionary<string, List<DirectoryStation>>>(jsonReader) ?? [];
         var stations = repository.For<Station>();
         var existing = (await stations.GetAll()).ToDictionary(station => station.DirectoryId);
         var created = 0;
