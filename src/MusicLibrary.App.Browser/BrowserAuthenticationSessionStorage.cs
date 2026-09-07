@@ -4,9 +4,11 @@ namespace MusicLibrary.App.Browser;
 
 internal static partial class BrowserAuthenticationSessionStorage
 {
-    [JSImport("loadAuthenticationSession", "./authenticationSession.js")]
+    internal const string ModuleName = "authenticationSession";
+
+    [JSImport("loadAuthenticationSession", ModuleName)]
     internal static partial string? Load();
 
-    [JSImport("saveAuthenticationSession", "./authenticationSession.js")]
+    [JSImport("saveAuthenticationSession", ModuleName)]
     internal static partial void Save(string? value);
 }

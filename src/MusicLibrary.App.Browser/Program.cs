@@ -1,12 +1,14 @@
 using Avalonia;
 using Avalonia.Browser;
+using System.Runtime.InteropServices.JavaScript;
 
 namespace MusicLibrary.App.Browser;
 
 internal static class Program
 {
-    private static Task Main(string[] args)
+    private static async Task Main(string[] args)
     {
+        await JSHost.ImportAsync(BrowserAuthenticationSessionStorage.ModuleName, "./authenticationSession.js");
         MusicLibrary.App.App.IsBrowserHost = true;
         MusicLibrary.App.AuthenticationSessionStorage.Load = BrowserAuthenticationSessionStorage.Load;
         MusicLibrary.App.AuthenticationSessionStorage.Save = BrowserAuthenticationSessionStorage.Save;
@@ -14,7 +16,7 @@ internal static class Program
         {
             MusicLibrary.App.MusicLibraryApi.Configure(new Uri(pageUri.GetLeftPart(UriPartial.Authority)));
         }
-        return BuildAvaloniaApp().StartBrowserAppAsync("out");
+        await BuildAvaloniaApp().StartBrowserAppAsync("out");
     }
 
     private static AppBuilder BuildAvaloniaApp()
