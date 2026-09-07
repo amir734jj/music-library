@@ -6,7 +6,6 @@ using EfCoreRepository.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace MusicLibrary.Api.Controllers;
 
@@ -63,6 +62,17 @@ public sealed class AdminController(
         return NoContent();
     }
 
+    [HttpPut("stations/probe")]
+    public async Task<ActionResult<int>> UpdateAllStationProbes(UpdateStationProbeRequest request, CancellationToken cancellationToken)
+    {
+        var stations = repository.For<Station>();
+        var stationIds = (await stations.GetAll<Station>(project: station => new Station { Id = station.Id }))
+            .Select(station => station.Id)
+            .ToArray();
+        await stations.BulkUpdate(stationIds, station => station.IsProbeEnabled = request.IsProbeEnabled);
+        return Ok(stationIds.Length);
+    }
+
     [HttpGet("probes/status")]
     public async Task<ActionResult<ProbeStatusSummary>> GetProbeStatus([FromQuery] string? query, CancellationToken cancellationToken)
     {
@@ -79,6 +89,7 @@ public sealed class AdminController(
                     station => station.StreamUrl.ToLower())
             };
         var stationRepository = repository.For<Station>();
+        var enabledStationCount = await stationRepository.Count([station => station.IsProbeEnabled]);
         var matchingStationCount = await stationRepository.Count(filters);
         var stations = await stationRepository.GetAll<Station>(
             filterExprs: filters,
@@ -105,6 +116,7 @@ public sealed class AdminController(
             runtime.LastBatchStartedAt,
             runtime.LastBatchCompletedAt,
             runtime.ActiveProbes.Count,
+            enabledStationCount,
             matchingStationCount,
             stationStatuses));
     }

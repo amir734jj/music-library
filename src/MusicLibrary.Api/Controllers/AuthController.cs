@@ -1,18 +1,19 @@
 using MusicLibrary.Api.Data;
 using MusicLibrary.Api.Services;
 using MusicLibrary.Contracts;
+using EfCoreRepository.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using System.Data;
 
 namespace MusicLibrary.Api.Controllers;
 
 [ApiController]
 [Route("api/auth")]
-public sealed class AuthController(UserManager<ApplicationUser> userManager, IJwtTokenService tokenService, MusicLibraryDbContext dbContext) : MusicLibraryControllerBase
+public sealed class AuthController(UserManager<ApplicationUser> userManager, IJwtTokenService tokenService, IEfRepository repository) : MusicLibraryControllerBase
 {
+    private static readonly SemaphoreSlim RegistrationGate = new(1, 1);
+
     [HttpGet("me")]
     [Authorize]
     public async Task<ActionResult<UserSummary>> GetCurrentUser()
@@ -33,29 +34,37 @@ public sealed class AuthController(UserManager<ApplicationUser> userManager, IJw
             return ValidationProblem(ModelState);
         }
 
-        await using var transaction = await dbContext.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
-        await dbContext.Database.ExecuteSqlRawAsync("SELECT pg_advisory_xact_lock(202609070001)", cancellationToken);
-
-        // The first registered account bootstraps itself as the administrator.
-        var isFirstUser = !await userManager.Users.AnyAsync(cancellationToken);
-        var user = new ApplicationUser
+        await RegistrationGate.WaitAsync(cancellationToken);
+        try
         {
-            Id = Guid.NewGuid(),
-            UserName = request.Email,
-            Email = request.Email,
-            DisplayName = request.DisplayName,
-            IsActive = isFirstUser
-        };
-        var result = await userManager.CreateAsync(user, request.Password);
-        if (!result.Succeeded) return IdentityFailure(result.Errors);
+            // The first registered account bootstraps itself as the administrator.
+            var isFirstUser = !await repository.For<ApplicationUser>().Any();
+            var user = new ApplicationUser
+            {
+                Id = Guid.NewGuid(),
+                UserName = request.Email,
+                Email = request.Email,
+                DisplayName = request.DisplayName,
+                IsActive = isFirstUser
+            };
+            var result = await userManager.CreateAsync(user, request.Password);
+            if (!result.Succeeded) return IdentityFailure(result.Errors);
 
-        var role = isFirstUser ? Roles.Admin : Roles.User;
-        var roleResult = await userManager.AddToRoleAsync(user, role);
-        if (!roleResult.Succeeded) return IdentityFailure(roleResult.Errors);
+            var role = isFirstUser ? Roles.Admin : Roles.User;
+            var roleResult = await userManager.AddToRoleAsync(user, role);
+            if (!roleResult.Succeeded)
+            {
+                await userManager.DeleteAsync(user);
+                return IdentityFailure(roleResult.Errors);
+            }
 
-        var summary = new UserSummary(user.Id, user.Email!, user.DisplayName, [role], user.IsActive);
-        await transaction.CommitAsync(cancellationToken);
-        return Created($"/api/admin/users/{user.Id}", new RegistrationAuthenticationResult(summary));
+            var summary = new UserSummary(user.Id, user.Email!, user.DisplayName, [role], user.IsActive);
+            return Created($"/api/admin/users/{user.Id}", new RegistrationAuthenticationResult(summary));
+        }
+        finally
+        {
+            RegistrationGate.Release();
+        }
     }
 
     [HttpPost("login")]

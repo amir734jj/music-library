@@ -10,6 +10,7 @@ public sealed partial class MainView : UserControl
     private CancellationTokenSource? _probeSearchCancellation;
     private CancellationTokenSource? _sessionExpiryCancellation;
     private bool _probingEnabled;
+    private int _enabledStationCount;
 
     public bool IsBrowserHost { get; }
     public bool ShowNativeMedia
@@ -260,6 +261,10 @@ public sealed partial class MainView : UserControl
         ProbeStatus.Text = _probingEnabled ? "Disabling probe worker..." : "Enabling probe worker...";
         try
         {
+            if (!_probingEnabled && _enabledStationCount == 0)
+            {
+                await MusicLibraryApi.SetAllStationProbingEnabledAsync(true);
+            }
             await MusicLibraryApi.SetProbingEnabledAsync(!_probingEnabled);
             await Task.WhenAll(LoadProbeStatusAsync(), LoadGlobalConfigAsync());
         }
@@ -267,6 +272,23 @@ public sealed partial class MainView : UserControl
         {
             ProbeStatus.Text = exception.Message;
             ProbeWorkerToggleButton.IsEnabled = true;
+        }
+    }
+
+    private async void ToggleAllStationProbes_Click(object? sender, RoutedEventArgs eventArgs)
+    {
+        var enable = _enabledStationCount == 0;
+        StationProbesToggleButton.IsEnabled = false;
+        ProbeStatus.Text = $"{(enable ? "Enabling" : "Disabling")} all stations...";
+        try
+        {
+            await MusicLibraryApi.SetAllStationProbingEnabledAsync(enable);
+            await LoadProbeStatusAsync();
+        }
+        catch (Exception exception)
+        {
+            ProbeStatus.Text = exception.Message;
+            StationProbesToggleButton.IsEnabled = true;
         }
     }
 
@@ -339,6 +361,9 @@ public sealed partial class MainView : UserControl
         {
             var status = await MusicLibraryApi.GetAdminProbeStatusAsync(query, cancellationToken);
             SetProbingEnabledState(status.ProbingEnabled);
+            _enabledStationCount = status.EnabledStationCount;
+            StationProbesToggleButton.Content = status.EnabledStationCount == 0 ? "Enable all stations" : "Disable all stations";
+            StationProbesToggleButton.IsEnabled = status.MatchingStationCount > 0;
             ProbeStationsList.ItemsSource = status.Stations.Select(CreateProbeStatusRow).ToList();
             var workerState = status.ProbingEnabled ? "enabled" : "disabled";
             var batchState = status.LastBatchStartedAt is null
@@ -351,7 +376,7 @@ public sealed partial class MainView : UserControl
                 : status.MatchingStationCount > status.Stations.Count
                     ? $"Showing {status.Stations.Count} of {status.MatchingStationCount} matching stations."
                     : $"{status.MatchingStationCount} station(s).";
-            ProbeStatus.Text = $"Worker {workerState} | {status.ActiveProbeCount} querying now | {stationState} {batchState}";
+            ProbeStatus.Text = $"Worker {workerState} | {status.ActiveProbeCount} querying now | {status.EnabledStationCount} enabled | {stationState} {batchState}";
         }
         catch (OperationCanceledException)
         {

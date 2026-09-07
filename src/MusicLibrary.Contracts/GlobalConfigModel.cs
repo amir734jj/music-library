@@ -6,7 +6,7 @@ public sealed class GlobalConfigModel
     public string DirectoryArtifactUrl { get; init; } = "https://github.com/amir734jj/shoutcast-directory-crawler/releases/download/latest/shoutcast-directory.json";
 
     [GlobalConfigCol(Name = "PROBING_ENABLED")]
-    public bool ProbingEnabled { get; init; } = false;
+    public bool ProbingEnabled { get; init; } = true;
 
     [GlobalConfigCol(Name = "PROBE_CONCURRENCY")]
     public int ProbeConcurrency { get; init; } = 5;

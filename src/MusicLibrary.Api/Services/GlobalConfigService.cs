@@ -19,7 +19,7 @@ public sealed class GlobalConfigService(IEfRepository repository) : IGlobalConfi
         return new GlobalConfigModel
         {
             DirectoryArtifactUrl = Get(rows, "DIRECTORY_ARTIFACT_URL", "https://github.com/amir734jj/shoutcast-directory-crawler/releases/download/latest/shoutcast-directory.json"),
-            ProbingEnabled = GetBool(rows, "PROBING_ENABLED"),
+            ProbingEnabled = GetBool(rows, "PROBING_ENABLED", true),
             ProbeConcurrency = GetInt(rows, "PROBE_CONCURRENCY", 5, 1, 100),
             ProbeTimeoutSeconds = GetInt(rows, "PROBE_TIMEOUT_SECONDS", 12, 2, 60),
             ProbeBatchSize = GetInt(rows, "PROBE_BATCH_SIZE", 100, 1, 1000)
@@ -59,9 +59,9 @@ public sealed class GlobalConfigService(IEfRepository repository) : IGlobalConfi
         return rows.GetValueOrDefault(key, fallback);
     }
 
-    private static bool GetBool(IReadOnlyDictionary<string, string> rows, string key)
+    private static bool GetBool(IReadOnlyDictionary<string, string> rows, string key, bool fallback)
     {
-        return bool.TryParse(rows.GetValueOrDefault(key), out var value) && value;
+        return bool.TryParse(rows.GetValueOrDefault(key), out var value) ? value : fallback;
     }
 
     private static int GetInt(IReadOnlyDictionary<string, string> rows, string key, int fallback, int min, int max)

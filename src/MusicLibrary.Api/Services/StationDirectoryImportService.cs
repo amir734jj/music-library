@@ -11,7 +11,10 @@ public interface IStationDirectoryImportService
     Task<DirectoryImportSummary> ImportAsync(CancellationToken cancellationToken);
 }
 
-public sealed class StationDirectoryImportService(HttpClient httpClient, IGlobalConfigService configService, IEfRepository repository) : IStationDirectoryImportService
+public sealed class StationDirectoryImportService(
+    HttpClient httpClient,
+    IGlobalConfigService configService,
+    IEfRepository repository) : IStationDirectoryImportService
 {
     public async Task<DirectoryImportSummary> ImportAsync(CancellationToken cancellationToken)
     {
@@ -28,8 +31,10 @@ public sealed class StationDirectoryImportService(HttpClient httpClient, IGlobal
         using var jsonReader = new JsonTextReader(streamReader);
         var serializer = JsonSerializer.CreateDefault(new JsonSerializerSettings { ContractResolver = new CamelCasePropertyNamesContractResolver() });
         var catalog = serializer.Deserialize<Dictionary<string, List<DirectoryStation>>>(jsonReader) ?? [];
-        var stations = repository.For<Station>();
+        await using var stations = repository.For<Station>().Delayed();
         var existing = (await stations.GetAll()).ToDictionary(station => station.DirectoryId);
+        var pendingUpdates = new Dictionary<Guid, DirectoryStation>();
+        var pendingCreates = new List<Station>();
         var created = 0;
         var updated = 0;
         var rejected = 0;
@@ -46,21 +51,38 @@ public sealed class StationDirectoryImportService(HttpClient httpClient, IGlobal
 
                 if (!existing.TryGetValue(station.ID, out var entity))
                 {
-                    var saved = await stations.Save(new Station { Id = Guid.NewGuid(), DirectoryId = station.ID, Name = station.Name!.Trim(), Genre = genre, StreamUrl = station.Url!.Trim() });
-                    existing.Add(station.ID, saved);
+                    entity = new Station { Id = Guid.NewGuid(), DirectoryId = station.ID, Name = station.Name!.Trim(), Genre = genre, StreamUrl = station.Url!.Trim() };
+                    pendingCreates.Add(entity);
+                    existing.Add(station.ID, entity);
                     created++;
                 }
                 else
                 {
-                    await stations.Update(entity.Id, tracked =>
+                    pendingUpdates[entity.Id] = new DirectoryStation
                     {
-                        tracked.Name = station.Name!.Trim();
-                        tracked.Genre = genre;
-                        tracked.StreamUrl = station.Url!.Trim();
-                    });
+                        ID = station.ID,
+                        Name = station.Name!.Trim(),
+                        Url = station.Url!.Trim(),
+                        Genre = genre
+                    };
                     updated++;
                 }
             }
+        }
+
+        if (pendingCreates.Count > 0)
+        {
+            await stations.SaveMany([.. pendingCreates]);
+        }
+        if (pendingUpdates.Count > 0)
+        {
+            await stations.BulkUpdate([.. pendingUpdates.Keys], entity =>
+            {
+                var update = pendingUpdates[entity.Id];
+                entity.Name = update.Name!;
+                entity.Genre = update.Genre!;
+                entity.StreamUrl = update.Url!;
+            });
         }
 
         return new DirectoryImportSummary(created, updated, rejected);
@@ -77,5 +99,6 @@ public sealed class StationDirectoryImportService(HttpClient httpClient, IGlobal
         public long ID { get; init; }
         public string? Name { get; init; }
         public string? Url { get; init; }
+        public string? Genre { get; init; }
     }
 }

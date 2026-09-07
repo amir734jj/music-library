@@ -43,6 +43,7 @@ public sealed record ProbeStatusSummary(
 	DateTimeOffset? LastBatchStartedAt,
 	DateTimeOffset? LastBatchCompletedAt,
 	int ActiveProbeCount,
+	int EnabledStationCount,
 	int MatchingStationCount,
 	IReadOnlyCollection<StationProbeStatusSummary> Stations);
 public sealed record NowPlayingSummary(Guid StationId, string StationName, string? Artist, string? Title, string RawMetadata, DateTimeOffset ObservedAt, decimal Confidence);

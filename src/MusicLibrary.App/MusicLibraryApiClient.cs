@@ -42,6 +42,9 @@ public interface IMusicLibraryApiClient
     [Put("/api/admin/stations/{id}/probe")]
     Task<IApiResponse> UpdateAdminStationProbeAsync(Guid id, [Body] UpdateStationProbeRequest request, [Authorize] string accessToken, CancellationToken cancellationToken = default);
 
+    [Put("/api/admin/stations/probe")]
+    Task<ApiResponse<int>> UpdateAllAdminStationProbesAsync([Body] UpdateStationProbeRequest request, [Authorize] string accessToken, CancellationToken cancellationToken = default);
+
     [Put("/api/admin/users/{id}")]
     Task<IApiResponse> UpdateAdminUserAsync(Guid id, [Body] UpdateUserRequest request, [Authorize] string accessToken, CancellationToken cancellationToken = default);
 
@@ -221,6 +224,17 @@ public static class MusicLibraryApi
             _authentication!.AccessToken,
             cancellationToken);
         EnsureSuccess(response);
+    }
+
+    public static async Task<int> SetAllStationProbingEnabledAsync(bool enabled, CancellationToken cancellationToken = default)
+    {
+        if (!IsAuthenticated) throw new InvalidOperationException("An authenticated session is required.");
+        using var response = await Client.UpdateAllAdminStationProbesAsync(
+            new UpdateStationProbeRequest(enabled),
+            _authentication!.AccessToken,
+            cancellationToken);
+        EnsureSuccess(response);
+        return GetContent(response);
     }
 
     public static async Task UpdateAdminUserAsync(UserSummary user, bool isActive, string? role = null, CancellationToken cancellationToken = default)
