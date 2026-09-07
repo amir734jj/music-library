@@ -18,11 +18,20 @@ public interface IMusicLibraryApiClient
     [Post("/api/auth/login")]
     Task<ApiResponse<AuthenticationResult>> LoginAsync([Body] LoginRequest request, CancellationToken cancellationToken = default);
 
+    [Get("/api/now-playing")]
+    Task<ApiResponse<List<NowPlayingSummary>>> GetNowPlayingAsync([Query] string? query, [Authorize] string accessToken, CancellationToken cancellationToken = default);
+
     [Get("/api/admin/users")]
     Task<ApiResponse<List<UserSummary>>> GetAdminUsersAsync([Authorize] string accessToken, CancellationToken cancellationToken = default);
 
+    [Get("/api/admin/probes/status")]
+    Task<ApiResponse<ProbeStatusSummary>> GetAdminProbeStatusAsync([Authorize] string accessToken, CancellationToken cancellationToken = default);
+
     [Put("/api/admin/users/{id}")]
     Task<IApiResponse> UpdateAdminUserAsync(Guid id, [Body] UpdateUserRequest request, [Authorize] string accessToken, CancellationToken cancellationToken = default);
+
+    [Delete("/api/admin/users/{id}")]
+    Task<IApiResponse> DeleteAdminUserAsync(Guid id, [Authorize] string accessToken, CancellationToken cancellationToken = default);
 }
 
 public static class MusicLibraryApi
@@ -93,14 +102,37 @@ public static class MusicLibraryApi
         return GetContent(response);
     }
 
-    public static async Task EnableAdminUserAsync(UserSummary user, CancellationToken cancellationToken = default)
+    public static async Task<IReadOnlyCollection<NowPlayingSummary>> GetNowPlayingAsync(string? query = null, CancellationToken cancellationToken = default)
+    {
+        if (!IsAuthenticated) throw new InvalidOperationException("An authenticated session is required.");
+        using var response = await Client.GetNowPlayingAsync(query, _authentication!.AccessToken, cancellationToken);
+        EnsureSuccess(response);
+        return GetContent(response);
+    }
+
+    public static async Task<ProbeStatusSummary> GetAdminProbeStatusAsync(CancellationToken cancellationToken = default)
+    {
+        if (!IsAuthenticated) throw new InvalidOperationException("An authenticated session is required.");
+        using var response = await Client.GetAdminProbeStatusAsync(_authentication!.AccessToken, cancellationToken);
+        EnsureSuccess(response);
+        return GetContent(response);
+    }
+
+    public static async Task UpdateAdminUserAsync(UserSummary user, bool isActive, string? role = null, CancellationToken cancellationToken = default)
     {
         if (!IsAuthenticated) throw new InvalidOperationException("An authenticated session is required.");
         using var response = await Client.UpdateAdminUserAsync(
             user.Id,
-            new UpdateUserRequest(user.DisplayName, IsActive: true, Role: null),
+            new UpdateUserRequest(user.DisplayName, isActive, role),
             _authentication!.AccessToken,
             cancellationToken);
+        EnsureSuccess(response);
+    }
+
+    public static async Task DeleteAdminUserAsync(Guid userId, CancellationToken cancellationToken = default)
+    {
+        if (!IsAuthenticated) throw new InvalidOperationException("An authenticated session is required.");
+        using var response = await Client.DeleteAdminUserAsync(userId, _authentication!.AccessToken, cancellationToken);
         EnsureSuccess(response);
     }
 

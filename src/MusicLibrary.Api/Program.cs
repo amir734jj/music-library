@@ -48,11 +48,32 @@ builder.Services.AddAuthentication(options =>
     options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
     options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
     options.DefaultForbidScheme = JwtBearerDefaults.AuthenticationScheme;
-}).AddJwtBearer(options => options.TokenValidationParameters = new TokenValidationParameters
+}).AddJwtBearer(options =>
 {
-    ValidateIssuer = true, ValidateAudience = true, ValidateLifetime = true, ValidateIssuerSigningKey = true,
-    ValidIssuer = builder.Configuration["Jwt:Issuer"], ValidAudience = builder.Configuration["Jwt:Audience"],
-    IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
+    options.TokenValidationParameters = new TokenValidationParameters
+    {
+        ValidateIssuer = true, ValidateAudience = true, ValidateLifetime = true, ValidateIssuerSigningKey = true,
+        ValidIssuer = builder.Configuration["Jwt:Issuer"], ValidAudience = builder.Configuration["Jwt:Audience"],
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
+    };
+    options.Events = new JwtBearerEvents
+    {
+        OnTokenValidated = async context =>
+        {
+            var userId = context.Principal?.FindFirstValue(JwtRegisteredClaimNames.Sub);
+            var userManager = context.HttpContext.RequestServices.GetRequiredService<UserManager<ApplicationUser>>();
+            var user = userId is null ? null : await userManager.FindByIdAsync(userId);
+            if (user is null || !user.IsActive)
+            {
+                context.Fail("The account is disabled or no longer exists.");
+                return;
+            }
+
+            var currentRoles = await userManager.GetRolesAsync(user);
+            var tokenRoles = context.Principal!.FindAll(ClaimTypes.Role).Select(claim => claim.Value).ToHashSet(StringComparer.Ordinal);
+            if (!tokenRoles.SetEquals(currentRoles)) context.Fail("The account roles have changed. Sign in again.");
+        }
+    };
 });
 builder.Services.AddAuthorization();
 builder.Services.AddControllers().AddNewtonsoftJson(options =>
@@ -70,6 +91,7 @@ builder.Services.Scan(scan => scan
     .WithScopedLifetime());
 builder.Services.AddStreamRipper();
 builder.Services.AddHttpClient<IStationDirectoryImportService, StationDirectoryImportService>(client => client.Timeout = TimeSpan.FromMinutes(5));
+builder.Services.AddSingleton<StationProbeStatusStore>();
 builder.Services.AddHostedService<StationProbeWorker>();
 
 var app = builder.Build();

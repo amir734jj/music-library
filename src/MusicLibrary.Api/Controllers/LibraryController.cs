@@ -1,9 +1,9 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
-using MusicLibrary.Api.Data;
-using MusicLibrary.Contracts;
 using EfCoreRepository.Interfaces;
 using EfCoreRepository.Models;
+using MusicLibrary.Api.Data;
+using MusicLibrary.Contracts;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -15,11 +15,25 @@ namespace MusicLibrary.Api.Controllers;
 public sealed class LibraryController(IEfRepository repository) : ControllerBase
 {
     [HttpGet("now-playing")]
-    public Task<IEnumerable<NowPlayingSummary>> NowPlaying() =>
-        repository.For<PlayObservation>().GetAll(
+    public async Task<IReadOnlyCollection<NowPlayingSummary>> NowPlaying([FromQuery] string? query)
+    {
+        var filters = string.IsNullOrWhiteSpace(query)
+            ? []
+            : new[]
+            {
+                Filter<PlayObservation>.LikeAny(
+                    $"%{query.Trim().ToLowerInvariant()}%",
+                    play => play.Artist!.ToLower(),
+                    play => play.Title!.ToLower(),
+                    play => play.Station.Name.ToLower())
+            };
+
+        return (await repository.For<PlayObservation>().GetAll(
+            filterExprs: filters,
             orderBy: Ordering<PlayObservation>.Desc(play => play.ObservedAt),
             project: play => new NowPlayingSummary(play.StationId, play.Station.Name, play.Artist, play.Title, play.RawMetadata, play.ObservedAt, play.Confidence),
-            maxResults: 100);
+            maxResults: 100)).ToList();
+    }
 
     [HttpGet("subscriptions")]
     public Task<IEnumerable<ArtistSubscriptionSummary>> GetSubscriptions() =>

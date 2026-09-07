@@ -27,6 +27,23 @@ public sealed record RegistrationAuthenticationResult(UserSummary User)
 
 public sealed record UserSummary(Guid Id, string Email, string? DisplayName, IReadOnlyCollection<string> Roles, bool IsActive);
 public sealed record StationSummary(Guid Id, string Name, string Genre, string StreamUrl, bool IsProbeEnabled, DateTimeOffset? LastProbedAt);
+public sealed record StationProbeStatusSummary(
+	Guid Id,
+	string Name,
+	string Genre,
+	string StreamUrl,
+	bool IsProbeEnabled,
+	bool IsProbing,
+	DateTimeOffset? ProbeStartedAt,
+	DateTimeOffset? LastProbedAt,
+	DateTimeOffset? LastMetadataAt,
+	int ConsecutiveProbeFailures);
+public sealed record ProbeStatusSummary(
+	bool ProbingEnabled,
+	DateTimeOffset? LastBatchStartedAt,
+	DateTimeOffset? LastBatchCompletedAt,
+	int ActiveProbeCount,
+	IReadOnlyCollection<StationProbeStatusSummary> Stations);
 public sealed record NowPlayingSummary(Guid StationId, string StationName, string? Artist, string? Title, string RawMetadata, DateTimeOffset ObservedAt, decimal Confidence);
 public sealed record ArtistSubscriptionSummary(Guid Id, string ArtistName, DateTimeOffset CreatedAt, bool CaptureEnabled);
 public sealed record CreateSubscriptionRequest(string ArtistName, bool CaptureEnabled);

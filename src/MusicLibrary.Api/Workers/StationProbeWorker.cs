@@ -6,7 +6,10 @@ using EfCoreRepository.Models;
 
 namespace MusicLibrary.Api.Workers;
 
-public sealed class StationProbeWorker(IServiceScopeFactory scopeFactory, ILogger<StationProbeWorker> logger) : BackgroundService
+public sealed class StationProbeWorker(
+    IServiceScopeFactory scopeFactory,
+    StationProbeStatusStore statusStore,
+    ILogger<StationProbeWorker> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -30,25 +33,34 @@ public sealed class StationProbeWorker(IServiceScopeFactory scopeFactory, ILogge
 
     private async Task ProbeBatchAsync(CancellationToken cancellationToken)
     {
-        using var scope = scopeFactory.CreateScope();
-        var config = await scope.ServiceProvider.GetRequiredService<IGlobalConfigService>().GetAsync(cancellationToken);
-        if (!config.ProbingEnabled)
+        statusStore.BatchStarted();
+        try
         {
-            return;
+            using var scope = scopeFactory.CreateScope();
+            var config = await scope.ServiceProvider.GetRequiredService<IGlobalConfigService>().GetAsync(cancellationToken);
+            if (!config.ProbingEnabled)
+            {
+                return;
+            }
+
+            var stations = await scope.ServiceProvider.GetRequiredService<IEfRepository>().For<Station>().GetAll(
+                filterExprs: [station => station.IsProbeEnabled],
+                orderBy: Ordering<Station>.Asc(station => station.LastProbedAt),
+                maxResults: config.ProbeBatchSize);
+
+            using var gate = new SemaphoreSlim(config.ProbeConcurrency);
+            await Task.WhenAll(stations.Select(station => ProbeStationAsync(station, config.ProbeTimeoutSeconds, gate, cancellationToken)));
         }
-
-        var stations = await scope.ServiceProvider.GetRequiredService<IEfRepository>().For<Station>().GetAll(
-            filterExprs: [station => station.IsProbeEnabled],
-            orderBy: Ordering<Station>.Asc(station => station.LastProbedAt),
-            maxResults: config.ProbeBatchSize);
-
-        using var gate = new SemaphoreSlim(config.ProbeConcurrency);
-        await Task.WhenAll(stations.Select(station => ProbeStationAsync(station, config.ProbeTimeoutSeconds, gate, cancellationToken)));
+        finally
+        {
+            statusStore.BatchCompleted();
+        }
     }
 
     private async Task ProbeStationAsync(Station station, int timeoutSeconds, SemaphoreSlim gate, CancellationToken cancellationToken)
     {
         await gate.WaitAsync(cancellationToken);
+        statusStore.ProbeStarted(station.Id);
         try
         {
             using var scope = scopeFactory.CreateScope();
@@ -96,6 +108,7 @@ public sealed class StationProbeWorker(IServiceScopeFactory scopeFactory, ILogge
         }
         finally
         {
+            statusStore.ProbeCompleted(station.Id);
             gate.Release();
         }
     }
