@@ -1,4 +1,5 @@
 using Avalonia;
+using Avalonia.Browser;
 
 namespace MusicLibrary.App.Browser;
 
@@ -10,5 +11,8 @@ internal static class Program
         return BuildAvaloniaApp().StartBrowserAppAsync("out");
     }
 
-    private static AppBuilder BuildAvaloniaApp() => AppBuilder.Configure<MusicLibrary.App.App>();
+    private static AppBuilder BuildAvaloniaApp()
+    {
+        return AppBuilder.Configure<MusicLibrary.App.App>();
+    }
 }

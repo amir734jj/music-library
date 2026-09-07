@@ -1,0 +1,59 @@
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using MusicLibrary.Api.Data;
+using MusicLibrary.Contracts;
+using EfCoreRepository.Interfaces;
+using EfCoreRepository.Models;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+
+namespace MusicLibrary.Api.Controllers;
+
+[ApiController]
+[Route("api")]
+[Authorize]
+public sealed class LibraryController(IEfRepository repository) : ControllerBase
+{
+    [HttpGet("now-playing")]
+    public Task<IEnumerable<NowPlayingSummary>> NowPlaying() =>
+        repository.For<PlayObservation>().GetAll(
+            orderBy: Ordering<PlayObservation>.Desc(play => play.ObservedAt),
+            project: play => new NowPlayingSummary(play.StationId, play.Station.Name, play.Artist, play.Title, play.RawMetadata, play.ObservedAt, play.Confidence),
+            maxResults: 100);
+
+    [HttpGet("subscriptions")]
+    public Task<IEnumerable<ArtistSubscriptionSummary>> GetSubscriptions() =>
+        repository.For<ArtistSubscription>().GetAll(
+            filterExprs: [subscription => subscription.UserId == CurrentUserId],
+            orderBy: Ordering<ArtistSubscription>.Asc(subscription => subscription.ArtistName),
+            project: subscription => new ArtistSubscriptionSummary(subscription.Id, subscription.ArtistName, subscription.CreatedAt, subscription.CaptureEnabled));
+
+    [HttpPost("subscriptions")]
+    public async Task<IActionResult> CreateSubscription(CreateSubscriptionRequest request)
+    {
+        var artist = request.ArtistName.Trim();
+        if (artist.Length is < 2 or > 200)
+        {
+            ModelState.AddModelError("artistName", "Artist name must be between 2 and 200 characters.");
+            return ValidationProblem(ModelState);
+        }
+
+        var subscriptions = repository.For<ArtistSubscription>();
+        var normalizedArtist = artist.ToUpperInvariant();
+        if (await subscriptions.Any([subscription => subscription.UserId == CurrentUserId && subscription.NormalizedArtistName == normalizedArtist])) return Conflict();
+
+        var subscription = await subscriptions.Save(new ArtistSubscription { Id = Guid.NewGuid(), UserId = CurrentUserId, ArtistName = artist, NormalizedArtistName = normalizedArtist, CaptureEnabled = request.CaptureEnabled, CreatedAt = DateTimeOffset.UtcNow });
+        return Created($"/api/subscriptions/{subscription.Id}", new ArtistSubscriptionSummary(subscription.Id, subscription.ArtistName, subscription.CreatedAt, subscription.CaptureEnabled));
+    }
+
+    [HttpGet("alerts")]
+    public Task<IEnumerable<UserAlertSummary>> GetAlerts() =>
+        repository.For<UserAlert>().GetAll(
+            filterExprs: [alert => alert.UserId == CurrentUserId],
+            orderBy: Ordering<UserAlert>.Desc(alert => alert.CreatedAt),
+            project: alert => new UserAlertSummary(alert.Id, alert.ArtistSubscription.ArtistName, alert.PlayObservation.Station.Name, alert.PlayObservation.Title, alert.PlayObservation.ObservedAt),
+            maxResults: 100);
+
+    private Guid CurrentUserId => Guid.Parse(User.FindFirstValue(JwtRegisteredClaimNames.Sub)!);
+}
+

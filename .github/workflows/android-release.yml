@@ -15,11 +15,6 @@ concurrency:
 jobs:
   build-and-release:
     runs-on: ubuntu-latest
-    env:
-      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v5
 
@@ -38,29 +33,15 @@ jobs:
       - name: Restore Android application
         run: dotnet restore src/MusicLibrary.App.Android/MusicLibrary.App.Android.csproj
 
-      - name: Prepare signing key
-        shell: bash
-        run: |
-          test -n "$ANDROID_KEYSTORE_BASE64"
-          test -n "$ANDROID_KEYSTORE_PASSWORD"
-          test -n "$ANDROID_KEY_ALIAS"
-          test -n "$ANDROID_KEY_PASSWORD"
-          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/music-library.keystore"
-
-      - name: Build signed APK
+      - name: Build APK (debug-signed)
         shell: bash
         run: |
           dotnet publish src/MusicLibrary.App.Android/MusicLibrary.App.Android.csproj \
             --configuration Release \
-            --framework net10.0-android \
+            --framework net10.0-android36.0 \
             --no-restore \
             --output artifacts/android \
-            -p:AndroidPackageFormat=apk \
-            -p:AndroidKeyStore=true \
-            -p:AndroidSigningKeyStore="$RUNNER_TEMP/music-library.keystore" \
-            -p:AndroidSigningStorePass="$ANDROID_KEYSTORE_PASSWORD" \
-            -p:AndroidSigningKeyAlias="$ANDROID_KEY_ALIAS" \
-            -p:AndroidSigningKeyPass="$ANDROID_KEY_PASSWORD"
+            -p:AndroidPackageFormat=apk
           find artifacts/android -type f -name '*.apk' -print -quit | xargs -I{} cp {} artifacts/music-library-latest.apk
 
       - name: Upload workflow APK artifact

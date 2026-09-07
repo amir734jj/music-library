@@ -24,3 +24,5 @@ appsettings.Local.json
 *.user
 *.suo
 *.rsuser
+.vscode
+.idea

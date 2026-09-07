@@ -6,7 +6,14 @@ namespace MusicLibrary.App;
 public sealed partial class MainView : UserControl
 {
     public bool ShowAdministration { get; }
-    public bool ShowNativeMedia => !ShowAdministration;
+    public bool ShowNativeMedia
+    {
+        get { return !ShowAdministration; }
+    }
+
+    public MainView() : this(showAdministration: false)
+    {
+    }
 
     public MainView(bool showAdministration = false)
     {
@@ -51,6 +58,15 @@ public sealed partial class MainView : UserControl
         }
     }
 
-    private bool TryGetStreamUri(out Uri streamUri) => Uri.TryCreate(StreamUrlInput.Text?.Trim(), UriKind.Absolute, out streamUri)
-        && (streamUri.Scheme == Uri.UriSchemeHttp || streamUri.Scheme == Uri.UriSchemeHttps);
+    private bool TryGetStreamUri(out Uri streamUri)
+    {
+        if (Uri.TryCreate(StreamUrlInput.Text?.Trim(), UriKind.Absolute, out var parsedUri)
+            && (parsedUri.Scheme == Uri.UriSchemeHttp || parsedUri.Scheme == Uri.UriSchemeHttps))
+        {
+            streamUri = parsedUri;
+            return true;
+        }
+        streamUri = null!;
+        return false;
+    }
 }

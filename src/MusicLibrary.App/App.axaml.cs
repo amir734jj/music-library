@@ -8,7 +8,10 @@ public class App : Application
 {
     public static bool IsBrowserHost { get; set; }
 
-    public override void Initialize() => AvaloniaXamlLoader.Load(this);
+    public override void Initialize()
+    {
+        AvaloniaXamlLoader.Load(this);
+    }
 
     public override void OnFrameworkInitializationCompleted()
     {

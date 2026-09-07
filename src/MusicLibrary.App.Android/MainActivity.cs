@@ -9,20 +9,20 @@ namespace MusicLibrary.App.Android;
 
 [Activity(Label = "Music Library", Theme = "@style/MyTheme.NoActionBar", MainLauncher = true,
     ConfigurationChanges = ConfigChanges.Orientation | ConfigChanges.ScreenSize | ConfigChanges.UiMode)]
-public sealed class MainActivity : AvaloniaMainActivity<MusicLibrary.App.App>
+public sealed class MainActivity : AvaloniaMainActivity
 {
     protected override void OnCreate(Bundle? savedInstanceState)
     {
         NativeRadioActions.ListenAsync = streamUri =>
         {
             var intent = new Intent(Intent.ActionView);
-            intent.SetDataAndType(Android.Net.Uri.Parse(streamUri.AbsoluteUri), "audio/*");
+            intent.SetDataAndType(global::Android.Net.Uri.Parse(streamUri.AbsoluteUri), "audio/*");
             StartActivity(Intent.CreateChooser(intent, "Listen live"));
             return Task.CompletedTask;
         };
         NativeRadioActions.DownloadAsync = (streamUri, duration) =>
         {
-            var directory = GetExternalFilesDir(Environment.DirectoryMusic)?.AbsolutePath ?? FilesDir!.AbsolutePath;
+            var directory = GetExternalFilesDir(global::Android.OS.Environment.DirectoryMusic)?.AbsolutePath ?? FilesDir!.AbsolutePath;
             return NativeStreamDownloader.DownloadAsync(streamUri, directory, duration);
         };
         base.OnCreate(savedInstanceState);

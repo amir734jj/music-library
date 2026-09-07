@@ -19,5 +19,8 @@ internal static class Program
         BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
     }
 
-    public static AppBuilder BuildAvaloniaApp() => AppBuilder.Configure<MusicLibrary.App.App>().UsePlatformDetect().WithInterFont().LogToTrace();
+    public static AppBuilder BuildAvaloniaApp()
+    {
+        return AppBuilder.Configure<MusicLibrary.App.App>().UsePlatformDetect().WithInterFont().LogToTrace();
+    }
 }

@@ -1,7 +1,7 @@
 using System.Globalization;
 using MusicLibrary.Api.Data;
 using MusicLibrary.Contracts;
-using Microsoft.EntityFrameworkCore;
+using EfCoreRepository.Interfaces;
 
 namespace MusicLibrary.Api.Services;
 
@@ -11,11 +11,11 @@ public interface IGlobalConfigService
     Task SaveAsync(IReadOnlyDictionary<string, string> values, Guid userId, CancellationToken cancellationToken);
 }
 
-public sealed class GlobalConfigService(MusicLibraryDbContext dbContext) : IGlobalConfigService
+public sealed class GlobalConfigService(IEfRepository repository) : IGlobalConfigService
 {
     public async Task<GlobalConfigModel> GetAsync(CancellationToken cancellationToken)
     {
-        var rows = await dbContext.GlobalConfigRows.AsNoTracking().ToDictionaryAsync(row => row.Key, row => row.Value, cancellationToken);
+        var rows = (await repository.For<GlobalConfigRow>().GetAll()).ToDictionary(row => row.Key, row => row.Value);
         return new GlobalConfigModel
         {
             DirectoryArtifactUrl = Get(rows, "DIRECTORY_ARTIFACT_URL", "https://github.com/amir734jj/shoutcast-directory-crawler/releases/download/latest/shoutcast-directory.json"),
@@ -33,20 +33,41 @@ public sealed class GlobalConfigService(MusicLibraryDbContext dbContext) : IGlob
             .Where(key => key is not null)
             .ToHashSet(StringComparer.Ordinal);
 
+        var rows = repository.For<GlobalConfigRow>();
         foreach (var (key, value) in values.Where(pair => supportedKeys.Contains(pair.Key)))
         {
-            var row = await dbContext.GlobalConfigRows.FindAsync([key], cancellationToken)
-                ?? new GlobalConfigRow { Key = key, Value = string.Empty };
-            row.Value = value.Trim();
-            row.UpdatedAt = DateTimeOffset.UtcNow;
-            row.UpdatedByUserId = userId;
-            dbContext.Update(row);
+            var trimmedValue = value.Trim();
+            var existing = await rows.Get([row => row.Key == key]);
+            if (existing is null)
+            {
+                await rows.Save(new GlobalConfigRow { Key = key, Value = trimmedValue, UpdatedAt = DateTimeOffset.UtcNow, UpdatedByUserId = userId });
+            }
+            else
+            {
+                await rows.Update([row => row.Key == key], row =>
+                {
+                    row.Value = trimmedValue;
+                    row.UpdatedAt = DateTimeOffset.UtcNow;
+                    row.UpdatedByUserId = userId;
+                });
+            }
         }
-
-        await dbContext.SaveChangesAsync(cancellationToken);
     }
 
-    private static string Get(IReadOnlyDictionary<string, string> rows, string key, string fallback) => rows.GetValueOrDefault(key, fallback);
-    private static bool GetBool(IReadOnlyDictionary<string, string> rows, string key) => bool.TryParse(rows.GetValueOrDefault(key), out var value) && value;
-    private static int GetInt(IReadOnlyDictionary<string, string> rows, string key, int fallback, int min, int max) => int.TryParse(rows.GetValueOrDefault(key), CultureInfo.InvariantCulture, out var value) ? Math.Clamp(value, min, max) : fallback;
+    private static string Get(IReadOnlyDictionary<string, string> rows, string key, string fallback)
+    {
+        return rows.GetValueOrDefault(key, fallback);
+    }
+
+    private static bool GetBool(IReadOnlyDictionary<string, string> rows, string key)
+    {
+        return bool.TryParse(rows.GetValueOrDefault(key), out var value) && value;
+    }
+
+    private static int GetInt(IReadOnlyDictionary<string, string> rows, string key, int fallback, int min, int max)
+    {
+        return int.TryParse(rows.GetValueOrDefault(key), CultureInfo.InvariantCulture, out var value)
+            ? Math.Clamp(value, min, max)
+            : fallback;
+    }
 }

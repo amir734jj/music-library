@@ -4,7 +4,8 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\MusicLibrary.Contracts\MusicLibrary.Contracts.csproj" />
-    <PackageReference Include="Avalonia" Version="12.1.1" />
-    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.1" />
+    <PackageReference Include="Avalonia" Version="12.1.2" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.2" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.2" />
   </ItemGroup>
 </Project>
