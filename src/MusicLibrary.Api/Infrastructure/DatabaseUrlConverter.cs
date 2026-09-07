@@ -40,11 +40,6 @@ public static class DatabaseUrlConverter
             {
                 connection.SslMode = sslMode;
             }
-            else if (key.Equals("trust server certificate", StringComparison.OrdinalIgnoreCase)
-                && bool.TryParse(value, out var trustServerCertificate))
-            {
-                connection.TrustServerCertificate = trustServerCertificate;
-            }
         }
 
         return connection.ConnectionString;
