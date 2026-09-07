@@ -12,15 +12,48 @@ The API owns radio probing. It is disabled by default and only probes stations e
 - `MusicLibrary.App.Android`: Android host.
 - `MusicLibrary.App.Browser`: WebAssembly host for the user and administrator web experience.
 
-Configure `ConnectionStrings:MusicLibrary` and replace `Jwt:Key` before starting the API. For the first startup, supply `BootstrapAdmin:Email` and `BootstrapAdmin:Password` through development secrets or environment configuration; the API creates that account and assigns `Admin`. Do not store a real bootstrap password in `appsettings.json`.
+Configure `ConnectionStrings:MusicLibrary` and replace `Jwt:Key` before starting the API. The first account created through `POST /api/auth/register` is automatically granted the `Admin` role; that admin can promote other users to `Admin` later via `PUT /api/admin/users/{id}`.
+
+## Building locally
+
+Prerequisites:
+
+- [.NET SDK 10.0](https://dotnet.microsoft.com/download) (`dotnet --list-sdks` should show a `10.0.x` entry).
+- A PostgreSQL instance reachable via the connection string in `src/MusicLibrary.Api/appsettings.json` (`ConnectionStrings:MusicLibrary`).
+- A JDK and the .NET Android workload, only if you intend to build `MusicLibrary.App.Android` (see below).
+
+Restore and build the non-Android hosts:
+
+```bash
+dotnet build src/MusicLibrary.Api/MusicLibrary.Api.csproj
+dotnet build src/MusicLibrary.App.Desktop/MusicLibrary.App.Desktop.csproj
+dotnet build src/MusicLibrary.App.Browser/MusicLibrary.App.Browser.csproj
+```
+
+### Building the Android host
+
+`MusicLibrary.App.Android` targets `net10.0-android36.0` (the version must match the installed `Microsoft.Android.Ref` pack; check with `dotnet workload list`). One-time setup:
+
+```bash
+# Install the .NET Android workload
+dotnet workload install android
+
+# Download the Android SDK + accept licenses (adjust paths as needed)
+dotnet build src/MusicLibrary.App.Android/MusicLibrary.App.Android.csproj \
+  -t:InstallAndroidDependencies -f net10.0-android36.0 \
+  -p:AndroidSdkDirectory=$HOME/Android/Sdk \
+  -p:JavaSdkDirectory=/usr/lib/jvm/java-21-openjdk-amd64 \
+  -p:AcceptAndroidSdkLicenses=True
+```
+
+Then build with the same SDK paths on every subsequent build (or set them as persistent MSBuild/environment properties):
+
+```bash
+dotnet build src/MusicLibrary.App.Android/MusicLibrary.App.Android.csproj \
+  -p:AndroidSdkDirectory=$HOME/Android/Sdk \
+  -p:JavaSdkDirectory=/usr/lib/jvm/java-21-openjdk-amd64
+```
 
 ## Android release
 
-The GitHub Actions workflow in `.github/workflows/android-release.yml` builds a signed Android APK on every `master` push and updates the single prerelease tag named `latest`. Configure these repository Action secrets before the first run:
-
-- `ANDROID_KEYSTORE_BASE64`: Base64-encoded persistent Android keystore.
-- `ANDROID_KEYSTORE_PASSWORD`: Keystore password.
-- `ANDROID_KEY_ALIAS`: Signing key alias.
-- `ANDROID_KEY_PASSWORD`: Signing key password.
-
-The signing key must remain the same between releases so Android can install updates over an existing application. The workflow fails rather than publish an unsigned or ephemeral-key APK when any signing secret is absent.
+The GitHub Actions workflow in `.github/workflows/android-release.yml` builds a debug-signed Android APK on every `master` push and updates the single prerelease tag named `latest`. Because the APK is debug-signed (not a persistent release keystore), it installs with Android's "unknown/untrusted developer" warning and updates may require uninstalling the previous build first.
