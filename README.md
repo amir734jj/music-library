@@ -60,11 +60,11 @@ The GitHub Actions workflow in `.github/workflows/android-release.yml` builds a 
 
 ## Web container
 
-The root `Dockerfile` publishes `MusicLibrary.App.Browser` and serves its static WebAssembly assets with Nginx on port `8080`.
+The root `Dockerfile` publishes `MusicLibrary.App.Browser`, copies the static WebAssembly assets into the API's `wwwroot`, and serves both the SPA and API from one ASP.NET Core container on port `8080`. The container health check calls `GET /api/health`.
 
 ```bash
 docker build --tag music-library-web .
 docker run --rm --publish 8080:8080 music-library-web
 ```
 
-The API is deployed separately. Configure its CORS policy to allow the browser application's public origin before connecting the UI to authenticated API endpoints.
+Supply production database and JWT configuration with environment variables, for example `ConnectionStrings__MusicLibrary` and `Jwt__Key`.
