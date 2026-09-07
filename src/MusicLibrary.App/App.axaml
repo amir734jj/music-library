@@ -7,5 +7,9 @@
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="Padding" Value="12" />
     </Style>
+    <Style Selector="Button.nav.active">
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Background" Value="#263A7D44" />
+    </Style>
   </Application.Styles>
 </Application>

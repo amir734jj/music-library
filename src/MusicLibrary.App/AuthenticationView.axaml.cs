@@ -23,6 +23,8 @@ public sealed partial class AuthenticationView : UserControl
 
     private async void AuthenticationSubmit_Click(object? sender, RoutedEventArgs eventArgs)
     {
+        AuthenticationSubmitButton.IsEnabled = false;
+        AuthenticationModeButton.IsEnabled = false;
         AuthenticationStatus.Text = _isRegistrationMode ? "Creating account..." : "Signing in...";
         try
         {
@@ -52,6 +54,11 @@ public sealed partial class AuthenticationView : UserControl
         catch (Exception exception)
         {
             AuthenticationStatus.Text = exception.Message;
+        }
+        finally
+        {
+            AuthenticationSubmitButton.IsEnabled = true;
+            AuthenticationModeButton.IsEnabled = true;
         }
     }
 

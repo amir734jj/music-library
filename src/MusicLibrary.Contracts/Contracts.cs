@@ -49,6 +49,7 @@ public sealed record ProbeStatusSummary(
 	int PageSize,
 	IReadOnlyCollection<StationProbeStatusSummary> Stations);
 public sealed record NowPlayingSummary(Guid StationId, string StationName, string? Artist, string? Title, string RawMetadata, DateTimeOffset ObservedAt, decimal Confidence);
+public sealed record TrendingSummary(string Artist, string? Title, int ObservationCount, int StationCount, DateTimeOffset LastObservedAt);
 public sealed record ArtistSubscriptionSummary(Guid Id, string ArtistName, DateTimeOffset CreatedAt, bool CaptureEnabled);
 public sealed record CreateSubscriptionRequest(string ArtistName, bool CaptureEnabled);
 public sealed record UpdateGlobalConfigRequest(IReadOnlyDictionary<string, string> Values);

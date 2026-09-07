@@ -24,6 +24,18 @@ public interface IMusicLibraryApiClient
     [Get("/api/now-playing")]
     Task<ApiResponse<List<NowPlayingSummary>>> GetNowPlayingAsync([Query] string? query, [Authorize] string accessToken, CancellationToken cancellationToken = default);
 
+    [Get("/api/trending")]
+    Task<ApiResponse<List<TrendingSummary>>> GetTrendingAsync([Query] string? query, [Authorize] string accessToken, CancellationToken cancellationToken = default);
+
+    [Get("/api/subscriptions")]
+    Task<ApiResponse<List<ArtistSubscriptionSummary>>> GetSubscriptionsAsync([Authorize] string accessToken, CancellationToken cancellationToken = default);
+
+    [Post("/api/subscriptions")]
+    Task<ApiResponse<ArtistSubscriptionSummary>> CreateSubscriptionAsync([Body] CreateSubscriptionRequest request, [Authorize] string accessToken, CancellationToken cancellationToken = default);
+
+    [Delete("/api/subscriptions/{id}")]
+    Task<IApiResponse> DeleteSubscriptionAsync(Guid id, [Authorize] string accessToken, CancellationToken cancellationToken = default);
+
     [Get("/api/admin/users")]
     Task<ApiResponse<List<UserSummary>>> GetAdminUsersAsync([Authorize] string accessToken, CancellationToken cancellationToken = default);
 
@@ -166,6 +178,43 @@ public static class MusicLibraryApi
         using var response = await Client.GetNowPlayingAsync(query, _authentication!.AccessToken, cancellationToken);
         EnsureSuccess(response);
         return GetContent(response);
+    }
+
+    public static async Task<IReadOnlyCollection<TrendingSummary>> GetTrendingAsync(string? query = null, CancellationToken cancellationToken = default)
+    {
+        if (!IsAuthenticated) throw new InvalidOperationException("An authenticated session is required.");
+        using var response = await Client.GetTrendingAsync(query, _authentication!.AccessToken, cancellationToken);
+        EnsureSuccess(response);
+        return GetContent(response);
+    }
+
+    public static async Task<IReadOnlyCollection<ArtistSubscriptionSummary>> GetSubscriptionsAsync(CancellationToken cancellationToken = default)
+    {
+        if (!IsAuthenticated) throw new InvalidOperationException("An authenticated session is required.");
+        using var response = await Client.GetSubscriptionsAsync(_authentication!.AccessToken, cancellationToken);
+        EnsureSuccess(response);
+        return GetContent(response);
+    }
+
+    public static async Task<ArtistSubscriptionSummary?> CreateSubscriptionAsync(
+        string artistName,
+        CancellationToken cancellationToken = default)
+    {
+        if (!IsAuthenticated) throw new InvalidOperationException("An authenticated session is required.");
+        using var response = await Client.CreateSubscriptionAsync(
+            new CreateSubscriptionRequest(artistName, true),
+            _authentication!.AccessToken,
+            cancellationToken);
+        if (response.StatusCode == System.Net.HttpStatusCode.Conflict) return null;
+        EnsureSuccess(response);
+        return GetContent(response);
+    }
+
+    public static async Task DeleteSubscriptionAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        if (!IsAuthenticated) throw new InvalidOperationException("An authenticated session is required.");
+        using var response = await Client.DeleteSubscriptionAsync(id, _authentication!.AccessToken, cancellationToken);
+        EnsureSuccess(response);
     }
 
     public static async Task<ProbeStatusSummary> GetAdminProbeStatusAsync(

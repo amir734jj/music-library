@@ -29,6 +29,10 @@ public sealed class Station
     public bool IsProbeEnabled { get; set; } = true;
     public DateTimeOffset? LastProbedAt { get; set; }
     public DateTimeOffset? LastMetadataAt { get; set; }
+    public string? CurrentRawMetadata { get; set; }
+    public string? CurrentArtist { get; set; }
+    public string? CurrentTitle { get; set; }
+    public decimal CurrentConfidence { get; set; }
     public int ConsecutiveProbeFailures { get; set; }
 }
 

@@ -77,8 +77,15 @@ public sealed class StationProbeWorker(
             var probe = scope.ServiceProvider.GetRequiredService<IStreamMetadataProbe>();
             var repository = scope.ServiceProvider.GetRequiredService<IEfRepository>();
             var stations = repository.For<Station>();
-            var trackedStation = await stations.Get<Guid>(station.Id);
-            if (trackedStation is null || !Uri.TryCreate(trackedStation.StreamUrl, UriKind.Absolute, out var streamUri)) return;
+            if (!Uri.TryCreate(station.StreamUrl, UriKind.Absolute, out var streamUri))
+            {
+                await stations.Update<Guid>(station.Id, tracked =>
+                {
+                    tracked.LastProbedAt = DateTimeOffset.UtcNow;
+                    tracked.ConsecutiveProbeFailures++;
+                });
+                return;
+            }
 
             var result = await probe.ProbeAsync(streamUri, TimeSpan.FromSeconds(timeoutSeconds), cancellationToken);
             if (result is null)
@@ -91,28 +98,50 @@ public sealed class StationProbeWorker(
                 return;
             }
 
+            var confidence = string.IsNullOrWhiteSpace(result.Artist) ? 0.2m : 0.9m;
+            var metadataChanged = !string.Equals(
+                station.CurrentRawMetadata?.Trim(),
+                result.RawMetadata.Trim(),
+                StringComparison.Ordinal);
             await stations.Update<Guid>(station.Id, tracked =>
             {
                 tracked.LastProbedAt = DateTimeOffset.UtcNow;
                 tracked.ConsecutiveProbeFailures = 0;
                 tracked.LastMetadataAt = DateTimeOffset.UtcNow;
+                tracked.CurrentRawMetadata = result.RawMetadata;
+                tracked.CurrentArtist = result.Artist;
+                tracked.CurrentTitle = result.Title;
+                tracked.CurrentConfidence = confidence;
             });
+            if (!metadataChanged)
+            {
+                return;
+            }
 
+            var observations = repository.For<PlayObservation>();
             var observation = new PlayObservation
             {
                 Id = Guid.NewGuid(), StationId = station.Id, RawMetadata = result.RawMetadata,
-                Artist = result.Artist, Title = result.Title, Confidence = string.IsNullOrWhiteSpace(result.Artist) ? 0.2m : 0.9m,
+                Artist = result.Artist, Title = result.Title, Confidence = confidence,
                 ObservedAt = DateTimeOffset.UtcNow
             };
-            await repository.For<PlayObservation>().Save(observation);
+            await observations.Save(observation);
 
             if (!string.IsNullOrWhiteSpace(result.Artist))
             {
                 var normalizedArtist = result.Artist.Trim().ToUpperInvariant();
                 var subscriptions = await repository.For<ArtistSubscription>().GetAll(filterExprs: [subscription => subscription.NormalizedArtistName == normalizedArtist]);
-                foreach (var subscription in subscriptions)
+                var alerts = subscriptions.Select(subscription => new UserAlert
                 {
-                    await repository.For<UserAlert>().Save(new UserAlert { Id = Guid.NewGuid(), UserId = subscription.UserId, ArtistSubscriptionId = subscription.Id, PlayObservationId = observation.Id, CreatedAt = DateTimeOffset.UtcNow });
+                    Id = Guid.NewGuid(),
+                    UserId = subscription.UserId,
+                    ArtistSubscriptionId = subscription.Id,
+                    PlayObservationId = observation.Id,
+                    CreatedAt = DateTimeOffset.UtcNow
+                }).ToArray();
+                if (alerts.Length > 0)
+                {
+                    await repository.For<UserAlert>().SaveMany(alerts);
                 }
             }
         }

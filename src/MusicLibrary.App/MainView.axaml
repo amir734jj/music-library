@@ -1,27 +1,38 @@
-<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="clr-namespace:MusicLibrary.App" x:Class="MusicLibrary.App.MainView" x:Name="Root">
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="clr-namespace:MusicLibrary.App" x:Class="MusicLibrary.App.MainView" x:Name="Root" SizeChanged="MainView_SizeChanged">
   <Grid>
     <local:AuthenticationView Name="AuthenticationView" IsVisible="False" Margin="24" />
     <Grid Name="ApplicationView" RowDefinitions="Auto,*" Margin="16">
-    <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,16">
+    <Grid Name="HeaderGrid" ColumnDefinitions="*,Auto" Margin="0,0,0,16">
       <StackPanel Spacing="3">
         <TextBlock Text="Music Library" FontSize="22" FontWeight="SemiBold" />
         <TextBlock Text="Live radio artist index" Opacity="0.65" />
       </StackPanel>
-      <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+      <StackPanel Name="HeaderActions" Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
         <TextBlock Name="CurrentUserStatus" VerticalAlignment="Center" Opacity="0.7" />
         <Border Classes="panel" Padding="8,4"><TextBlock Name="ApiConnectionStatus" Text="Starting" Foreground="#26834A" /></Border>
         <Button Name="SignOutButton" Content="Sign out" Click="SignOut_Click" IsVisible="False" />
       </StackPanel>
     </Grid>
-    <Grid Grid.Row="1" ColumnDefinitions="240,16,*" RowDefinitions="*,Auto">
-      <Border Classes="panel"><StackPanel Spacing="8"><TextBlock Text="Library" FontWeight="SemiBold" /><Button Content="Now playing" HorizontalContentAlignment="Left" Click="Library_Click" /><Button Content="Following" HorizontalContentAlignment="Left" /><Button Content="Trending" HorizontalContentAlignment="Left" /><Separator Name="AdministrationSeparator" Margin="0,6" IsVisible="False" /><Button Name="AdministrationButton" Content="Administration" HorizontalContentAlignment="Left" IsVisible="False" Click="Administration_Click" /></StackPanel></Border>
+    <Grid Name="MainShell" Grid.Row="1" ColumnDefinitions="240,16,*" RowDefinitions="*,Auto">
+      <Border Name="LibraryNavigation" Classes="panel">
+        <ScrollViewer Name="LibraryNavigationScroll" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Disabled">
+          <StackPanel Name="LibraryNavigationPanel" Spacing="8">
+            <TextBlock Name="LibraryNavigationTitle" Text="Library" FontWeight="SemiBold" />
+            <Button Name="NowPlayingNavigationButton" Classes="nav" Content="Now playing" HorizontalContentAlignment="Left" Click="Library_Click" />
+            <Button Name="FollowingNavigationButton" Classes="nav" Content="Following" HorizontalContentAlignment="Left" Click="Following_Click" />
+            <Button Name="TrendingNavigationButton" Classes="nav" Content="Trending" HorizontalContentAlignment="Left" Click="Trending_Click" />
+            <Separator Name="AdministrationSeparator" Margin="0,6" IsVisible="False" />
+            <Button Name="AdministrationButton" Content="Administration" HorizontalContentAlignment="Left" IsVisible="False" Click="Administration_Click" />
+          </StackPanel>
+        </ScrollViewer>
+      </Border>
       <Grid Name="LibraryView" Grid.Column="2" RowDefinitions="Auto,12,*,12,Auto">
         <TextBox Name="LibrarySearchInput" PlaceholderText="Search artist, track, or station" TextChanged="LibrarySearchInput_TextChanged" />
         <Border Grid.Row="2" Classes="panel">
           <Grid RowDefinitions="Auto,8,Auto,8,*">
-            <TextBlock Text="Now Playing" FontSize="18" FontWeight="SemiBold" />
+            <TextBlock Name="LibraryViewTitle" Text="Now Playing" FontSize="18" FontWeight="SemiBold" />
             <TextBlock Grid.Row="2" Name="NowPlayingStatus" Text="Loading live observations..." Opacity="0.7" TextWrapping="Wrap" />
-            <ScrollViewer Grid.Row="4" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <ScrollViewer Grid.Row="4" Name="NowPlayingScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
               <ItemsControl Name="NowPlayingList" />
             </ScrollViewer>
           </Grid>
@@ -31,19 +42,19 @@
             <TextBlock Grid.ColumnSpan="7" Text="Live station" FontWeight="SemiBold" />
             <TextBox Grid.Row="2" Name="StreamUrlInput" PlaceholderText="https://station.example/stream" />
             <TextBox Grid.Row="2" Grid.Column="2" Name="RecordingSecondsInput" Text="300" PlaceholderText="Seconds" />
-            <Button Grid.Row="2" Grid.Column="4" Content="Listen" Click="Listen_Click" />
-            <Button Grid.Row="2" Grid.Column="6" Content="Download" Click="Download_Click" />
+            <Button Name="ListenButton" Grid.Row="2" Grid.Column="4" Content="Listen" Click="Listen_Click" />
+            <Button Name="DownloadButton" Grid.Row="2" Grid.Column="6" Content="Download" Click="Download_Click" />
             <TextBlock Grid.Row="4" Grid.ColumnSpan="7" Name="NativeMediaStatus" FontSize="12" Opacity="0.7" TextWrapping="Wrap" />
           </Grid>
         </Border>
       </Grid>
       <Grid Name="AdministrationView" Grid.Column="2" IsVisible="False" RowDefinitions="Auto,12,*">
-        <Grid ColumnDefinitions="*,Auto">
+        <Grid Name="AdministrationHeader" ColumnDefinitions="*,Auto">
           <StackPanel Spacing="3">
             <TextBlock Text="Administration" FontSize="20" FontWeight="SemiBold" />
             <TextBlock Text="Accounts, probing, and global settings" Opacity="0.65" />
           </StackPanel>
-          <Button Grid.Column="1" Content="Back to library" Click="Library_Click" />
+          <Button Name="BackToLibraryButton" Grid.Column="1" Content="Back to library" Click="Library_Click" />
         </Grid>
         <Border Grid.Row="2" Classes="panel">
           <TabControl>
@@ -58,19 +69,19 @@
             </TabItem>
             <TabItem Header="Probing">
               <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto" Margin="0,10,0,0">
-                <Grid ColumnDefinitions="*,Auto">
+                <Grid RowDefinitions="Auto,Auto">
                   <TextBlock Text="Shoutcast probes" FontWeight="SemiBold" VerticalAlignment="Center" />
-                  <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
-                    <Button Content="Import stations" Click="ImportStations_Click" />
-                    <Button Name="ProbeWorkerToggleButton" Content="Loading worker..." IsEnabled="False" Click="ToggleProbeWorker_Click" />
-                    <Button Name="StationProbesToggleButton" Content="Loading stations..." IsEnabled="False" Click="ToggleAllStationProbes_Click" />
-                    <Button Content="Refresh status" Click="RefreshProbeStatus_Click" />
-                  </StackPanel>
+                  <WrapPanel Grid.Row="1" Orientation="Horizontal" Margin="0,8,0,0">
+                    <Button Name="ImportStationsButton" Content="Import stations" Margin="0,0,8,8" Click="ImportStations_Click" />
+                    <Button Name="ProbeWorkerToggleButton" Content="Loading worker..." IsEnabled="False" Margin="0,0,8,8" Click="ToggleProbeWorker_Click" />
+                    <Button Name="StationProbesToggleButton" Content="Loading stations..." IsEnabled="False" Margin="0,0,8,8" Click="ToggleAllStationProbes_Click" />
+                    <Button Name="RefreshProbeStatusButton" Content="Refresh status" Margin="0,0,0,8" Click="RefreshProbeStatus_Click" />
+                  </WrapPanel>
                 </Grid>
                 <TextBlock Grid.Row="1" Text="Current worker activity and station metadata health." Opacity="0.65" TextWrapping="Wrap" />
                 <TextBox Grid.Row="2" Name="ProbeStationSearchInput" PlaceholderText="Search station, genre, or URL" TextChanged="ProbeStationSearchInput_TextChanged" />
                 <TextBlock Grid.Row="3" Name="ProbeStatus" Opacity="0.7" TextWrapping="Wrap" />
-                <ScrollViewer Grid.Row="4" MinHeight="160" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <ScrollViewer Grid.Row="4" Name="ProbeStationsScroll" MinHeight="160" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                   <ItemsControl Name="ProbeStationsList" />
                 </ScrollViewer>
                 <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,8,0,0">
@@ -93,8 +104,8 @@
                   <TextBlock Text="Stations per batch" FontWeight="SemiBold" />
                   <NumericUpDown Name="ConfigProbeBatchSizeInput" Minimum="1" Maximum="1000" Increment="1" />
                   <StackPanel Orientation="Horizontal" Spacing="8">
-                    <Button Content="Save configuration" Click="SaveGlobalConfig_Click" />
-                    <Button Content="Reload" Click="ReloadGlobalConfig_Click" />
+                    <Button Name="SaveGlobalConfigButton" Content="Save configuration" Click="SaveGlobalConfig_Click" />
+                    <Button Name="ReloadGlobalConfigButton" Content="Reload" Click="ReloadGlobalConfig_Click" />
                   </StackPanel>
                   <TextBlock Name="GlobalConfigStatus" Opacity="0.7" TextWrapping="Wrap" />
                 </StackPanel>

@@ -6,7 +6,18 @@ namespace MusicLibrary.App;
 
 public sealed partial class MainView : UserControl
 {
+    private enum LibraryMode
+    {
+        NowPlaying,
+        Following,
+        Trending
+    }
+
     private const int ProbePageSize = 100;
+    private readonly SemaphoreSlim _nowPlayingLoadGate = new(1, 1);
+    private readonly SemaphoreSlim _probeStatusLoadGate = new(1, 1);
+    private readonly HashSet<string> _subscribedArtists = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, List<Button>> _subscriptionButtons = new(StringComparer.OrdinalIgnoreCase);
     private CancellationTokenSource? _librarySearchCancellation;
     private CancellationTokenSource? _libraryPollingCancellation;
     private CancellationTokenSource? _probeSearchCancellation;
@@ -15,6 +26,14 @@ public sealed partial class MainView : UserControl
     private bool _probingEnabled;
     private int _enabledStationCount;
     private int _probePage = 1;
+    private int _probePageCount = 1;
+    private LibraryMode _libraryMode;
+    private bool _suppressLibrarySearch;
+    private IReadOnlyCollection<NowPlayingSummary> _nowPlayingSnapshot = [];
+    private IReadOnlyCollection<ArtistSubscriptionSummary> _followingSnapshot = [];
+    private IReadOnlyCollection<TrendingSummary> _trendingSnapshot = [];
+    private bool _subscriptionsLoaded;
+    private bool _isCompactLayout;
 
     public bool IsBrowserHost { get; }
     public bool ShowNativeMedia
@@ -71,6 +90,64 @@ public sealed partial class MainView : UserControl
         base.OnDetachedFromVisualTree(eventArgs);
     }
 
+    private void MainView_SizeChanged(object? sender, SizeChangedEventArgs eventArgs)
+    {
+        var useCompactLayout = eventArgs.NewSize.Width < 760;
+        if (_isCompactLayout == useCompactLayout) return;
+        _isCompactLayout = useCompactLayout;
+
+        if (useCompactLayout)
+        {
+            ApplicationView.Margin = new Avalonia.Thickness(10);
+            HeaderGrid.ColumnDefinitions = new ColumnDefinitions("*");
+            HeaderGrid.RowDefinitions = new RowDefinitions("Auto,8,Auto");
+            Grid.SetColumn(HeaderActions, 0);
+            Grid.SetRow(HeaderActions, 2);
+            HeaderActions.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left;
+            CurrentUserStatus.IsVisible = false;
+
+            MainShell.ColumnDefinitions = new ColumnDefinitions("*");
+            MainShell.RowDefinitions = new RowDefinitions("Auto,12,*");
+            LibraryNavigationPanel.Orientation = Avalonia.Layout.Orientation.Horizontal;
+            LibraryNavigationTitle.IsVisible = false;
+            LibraryNavigationScroll.HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto;
+            Grid.SetColumn(LibraryView, 0);
+            Grid.SetRow(LibraryView, 2);
+            Grid.SetColumn(AdministrationView, 0);
+            Grid.SetRow(AdministrationView, 2);
+            AdministrationHeader.ColumnDefinitions = new ColumnDefinitions("*");
+            AdministrationHeader.RowDefinitions = new RowDefinitions("Auto,8,Auto");
+            Grid.SetColumn(BackToLibraryButton, 0);
+            Grid.SetRow(BackToLibraryButton, 2);
+            BackToLibraryButton.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left;
+        }
+        else
+        {
+            ApplicationView.Margin = new Avalonia.Thickness(16);
+            HeaderGrid.ColumnDefinitions = new ColumnDefinitions("*,Auto");
+            HeaderGrid.RowDefinitions = new RowDefinitions("Auto");
+            Grid.SetColumn(HeaderActions, 1);
+            Grid.SetRow(HeaderActions, 0);
+            HeaderActions.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch;
+            CurrentUserStatus.IsVisible = true;
+
+            MainShell.ColumnDefinitions = new ColumnDefinitions("240,16,*");
+            MainShell.RowDefinitions = new RowDefinitions("*,Auto");
+            LibraryNavigationPanel.Orientation = Avalonia.Layout.Orientation.Vertical;
+            LibraryNavigationTitle.IsVisible = true;
+            LibraryNavigationScroll.HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled;
+            Grid.SetColumn(LibraryView, 2);
+            Grid.SetRow(LibraryView, 0);
+            Grid.SetColumn(AdministrationView, 2);
+            Grid.SetRow(AdministrationView, 0);
+            AdministrationHeader.ColumnDefinitions = new ColumnDefinitions("*,Auto");
+            AdministrationHeader.RowDefinitions = new RowDefinitions("Auto");
+            Grid.SetColumn(BackToLibraryButton, 1);
+            Grid.SetRow(BackToLibraryButton, 0);
+            BackToLibraryButton.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch;
+        }
+    }
+
     private async void Listen_Click(object? sender, RoutedEventArgs eventArgs)
     {
         if (NativeRadioActions.ListenAsync is null || !TryGetStreamUri(out var streamUri))
@@ -78,6 +155,7 @@ public sealed partial class MainView : UserControl
             NativeMediaStatus.Text = "Enter a valid HTTP or HTTPS station stream URL.";
             return;
         }
+        ListenButton.IsEnabled = false;
         try
         {
             await NativeRadioActions.ListenAsync(streamUri);
@@ -86,6 +164,10 @@ public sealed partial class MainView : UserControl
         catch (Exception exception)
         {
             NativeMediaStatus.Text = exception.Message;
+        }
+        finally
+        {
+            ListenButton.IsEnabled = true;
         }
     }
 
@@ -97,12 +179,15 @@ public sealed partial class MainView : UserControl
 
     private void ShowAuthenticatedApplication(UserSummary user)
     {
+        _subscribedArtists.Clear();
+        _subscriptionsLoaded = false;
         AuthenticationView.IsVisible = false;
         ApplicationView.IsVisible = true;
         CurrentUserStatus.Text = user.DisplayName ?? user.Email;
         var isAdmin = user.Roles.Contains(Roles.Admin);
         AdministrationSeparator.IsVisible = isAdmin;
         AdministrationButton.IsVisible = isAdmin;
+        SetLibraryMode(LibraryMode.NowPlaying);
         ShowLibrary();
         ScheduleSessionExpiry();
     }
@@ -154,8 +239,55 @@ public sealed partial class MainView : UserControl
 
     private void Library_Click(object? sender, RoutedEventArgs eventArgs)
     {
+        SetLibraryMode(LibraryMode.NowPlaying);
         ShowLibrary();
-        _ = LoadNowPlayingAsync(LibrarySearchInput.Text);
+        _ = LoadCurrentLibraryViewAsync(LibrarySearchInput.Text);
+    }
+
+    private void Trending_Click(object? sender, RoutedEventArgs eventArgs)
+    {
+        SetLibraryMode(LibraryMode.Trending);
+        ShowLibrary();
+        _ = LoadCurrentLibraryViewAsync(LibrarySearchInput.Text);
+    }
+
+    private void Following_Click(object? sender, RoutedEventArgs eventArgs)
+    {
+        SetLibraryMode(LibraryMode.Following);
+        ShowLibrary();
+        _ = LoadCurrentLibraryViewAsync();
+    }
+
+    private void SetLibraryMode(LibraryMode mode)
+    {
+        _librarySearchCancellation?.Cancel();
+        _libraryPollingCancellation?.Cancel();
+        _libraryMode = mode;
+        NowPlayingNavigationButton.Classes.Set("active", mode == LibraryMode.NowPlaying);
+        FollowingNavigationButton.Classes.Set("active", mode == LibraryMode.Following);
+        TrendingNavigationButton.Classes.Set("active", mode == LibraryMode.Trending);
+        LibraryViewTitle.Text = mode switch
+        {
+            LibraryMode.Following => "Following",
+            LibraryMode.Trending => "Trending Now",
+            _ => "Now Playing"
+        };
+        LibrarySearchInput.Watermark = mode switch
+        {
+            LibraryMode.Following => "Search followed artists",
+            LibraryMode.Trending => "Search trending artist or track",
+            _ => "Search artist, track, or station"
+        };
+        _suppressLibrarySearch = true;
+        try
+        {
+            LibrarySearchInput.Text = string.Empty;
+        }
+        finally
+        {
+            _suppressLibrarySearch = false;
+        }
+        NowPlayingScroll.Offset = default;
     }
 
     private void ShowLibrary()
@@ -182,7 +314,7 @@ public sealed partial class MainView : UserControl
             while (!cancellationToken.IsCancellationRequested)
             {
                 await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
-                await LoadNowPlayingAsync(LibrarySearchInput.Text, cancellationToken, showLoading: false);
+                await LoadCurrentLibraryViewAsync(LibrarySearchInput.Text, cancellationToken, showLoading: false);
             }
         }
         catch (OperationCanceledException)
@@ -192,16 +324,30 @@ public sealed partial class MainView : UserControl
 
     private async void LibrarySearchInput_TextChanged(object? sender, TextChangedEventArgs eventArgs)
     {
+        if (_suppressLibrarySearch) return;
         _librarySearchCancellation?.Cancel();
         var cancellation = _librarySearchCancellation = new CancellationTokenSource();
         try
         {
             await Task.Delay(300, cancellation.Token);
-            await LoadNowPlayingAsync(LibrarySearchInput.Text, cancellation.Token);
+            await LoadCurrentLibraryViewAsync(LibrarySearchInput.Text, cancellation.Token);
         }
         catch (OperationCanceledException)
         {
         }
+    }
+
+    private Task LoadCurrentLibraryViewAsync(
+        string? query = null,
+        CancellationToken cancellationToken = default,
+        bool showLoading = true)
+    {
+        return _libraryMode switch
+        {
+            LibraryMode.Following => LoadFollowingAsync(query, cancellationToken, showLoading),
+            LibraryMode.Trending => LoadTrendingAsync(query, cancellationToken, showLoading),
+            _ => LoadNowPlayingAsync(query, cancellationToken, showLoading)
+        };
     }
 
     private async Task LoadNowPlayingAsync(
@@ -211,33 +357,61 @@ public sealed partial class MainView : UserControl
     {
         if (showLoading)
         {
-            NowPlayingStatus.Text = string.IsNullOrWhiteSpace(query) ? "Loading live observations..." : "Searching...";
-            NowPlayingList.ItemsSource = null;
+            await _nowPlayingLoadGate.WaitAsync(cancellationToken);
         }
+        else if (!await _nowPlayingLoadGate.WaitAsync(0, cancellationToken))
+        {
+            return;
+        }
+
         try
         {
-            var observations = await MusicLibraryApi.GetNowPlayingAsync(query, cancellationToken);
-            NowPlayingList.ItemsSource = observations.Select(CreateNowPlayingRow).ToList();
-            NowPlayingStatus.Text = observations.Count == 0
-                ? (string.IsNullOrWhiteSpace(query)
-                    ? "No live observations yet. An administrator must import stations and enable probing first."
-                    : "No matching artists, tracks, or stations found.")
-                : $"{observations.Count} observation(s) | Updated {DateTime.Now:T}";
+            if (showLoading)
+            {
+                NowPlayingStatus.Text = string.IsNullOrWhiteSpace(query) ? "Loading live observations..." : "Searching...";
+                NowPlayingList.ItemsSource = null;
+            }
+            try
+            {
+                await EnsureSubscriptionsLoadedAsync(cancellationToken);
+                var observations = await MusicLibraryApi.GetNowPlayingAsync(query, cancellationToken);
+                if (_libraryMode != LibraryMode.NowPlaying) return;
+                var hasChanges = !_nowPlayingSnapshot.SequenceEqual(observations);
+                var canReplaceRows = showLoading || NowPlayingScroll.Offset.Y <= 1;
+                if ((showLoading || hasChanges) && canReplaceRows)
+                {
+                    _nowPlayingSnapshot = observations.ToList();
+                    _subscriptionButtons.Clear();
+                    NowPlayingList.ItemsSource = observations.Select(CreateNowPlayingRow).ToList();
+                }
+                NowPlayingStatus.Text = observations.Count == 0
+                    ? (string.IsNullOrWhiteSpace(query)
+                        ? "No live observations yet. An administrator must import stations and enable probing first."
+                        : "No matching artists, tracks, or stations found.")
+                    : hasChanges && !canReplaceRows
+                        ? $"{observations.Count} live station(s) | Updates available"
+                        : $"{observations.Count} live station(s) | Updated {DateTime.Now:T}";
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception exception)
+            {
+                NowPlayingStatus.Text = exception.Message;
+            }
         }
-        catch (OperationCanceledException)
+        finally
         {
-        }
-        catch (Exception exception)
-        {
-            NowPlayingStatus.Text = exception.Message;
+            _nowPlayingLoadGate.Release();
         }
     }
 
-    private static Control CreateNowPlayingRow(NowPlayingSummary observation)
+    private Control CreateNowPlayingRow(NowPlayingSummary observation)
     {
         var row = new Grid
         {
             ColumnDefinitions = new ColumnDefinitions("*,Auto"),
+            RowDefinitions = new RowDefinitions("Auto,Auto"),
             Margin = new Avalonia.Thickness(0, 0, 0, 10)
         };
         var details = new StackPanel { Spacing = 2 };
@@ -246,9 +420,16 @@ public sealed partial class MainView : UserControl
             Text = observation.Artist is null
                 ? observation.Title ?? observation.RawMetadata
                 : $"{observation.Artist} - {observation.Title ?? observation.RawMetadata}",
-            FontWeight = Avalonia.Media.FontWeight.SemiBold
+            FontWeight = Avalonia.Media.FontWeight.SemiBold,
+            TextWrapping = Avalonia.Media.TextWrapping.Wrap
         });
-        details.Children.Add(new TextBlock { Text = observation.StationName, Opacity = 0.7 });
+        details.Children.Add(new TextBlock
+        {
+            Text = observation.StationName,
+            Opacity = 0.7,
+            TextWrapping = Avalonia.Media.TextWrapping.Wrap
+        });
+        Grid.SetColumnSpan(details, 2);
         row.Children.Add(details);
 
         var observedAt = new TextBlock
@@ -258,7 +439,267 @@ public sealed partial class MainView : UserControl
             VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
         };
         Grid.SetColumn(observedAt, 1);
+        Grid.SetRow(observedAt, 1);
         row.Children.Add(observedAt);
+
+        if (!string.IsNullOrWhiteSpace(observation.Artist))
+        {
+            var artist = observation.Artist.Trim();
+            var isSubscribed = _subscribedArtists.Contains(artist);
+            var subscribeButton = new Button
+            {
+                Content = isSubscribed ? "Following" : "Follow artist",
+                IsEnabled = !isSubscribed,
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left,
+                Margin = new Avalonia.Thickness(0, 6, 0, 0)
+            };
+            subscribeButton.Click += async (_, _) => await SubscribeToArtistAsync(artist);
+            if (!_subscriptionButtons.TryGetValue(artist, out var buttons))
+            {
+                buttons = [];
+                _subscriptionButtons.Add(artist, buttons);
+            }
+            buttons.Add(subscribeButton);
+            Grid.SetRow(subscribeButton, 1);
+            row.Children.Add(subscribeButton);
+        }
+
+        return row;
+    }
+
+    private async Task EnsureSubscriptionsLoadedAsync(CancellationToken cancellationToken)
+    {
+        if (_subscriptionsLoaded) return;
+
+        try
+        {
+            var subscriptions = await MusicLibraryApi.GetSubscriptionsAsync(cancellationToken);
+            foreach (var subscription in subscriptions)
+            {
+                _subscribedArtists.Add(subscription.ArtistName);
+            }
+            _subscriptionsLoaded = true;
+        }
+        catch (HttpRequestException) when (MusicLibraryApi.IsAuthenticated)
+        {
+            // Now Playing remains usable while subscription state retries on the next refresh.
+        }
+    }
+
+    private async Task SubscribeToArtistAsync(string artist)
+    {
+        SetSubscriptionButtons(artist, "Following...", false);
+        try
+        {
+            await MusicLibraryApi.CreateSubscriptionAsync(artist);
+            _subscribedArtists.Add(artist);
+            SetSubscriptionButtons(artist, "Following", false);
+            NowPlayingStatus.Text = $"Following {artist}.";
+        }
+        catch (Exception exception)
+        {
+            SetSubscriptionButtons(artist, "Follow artist", true);
+            NowPlayingStatus.Text = exception.Message;
+        }
+    }
+
+    private void SetSubscriptionButtons(string artist, string content, bool isEnabled)
+    {
+        if (!_subscriptionButtons.TryGetValue(artist, out var buttons)) return;
+        foreach (var subscriptionButton in buttons)
+        {
+            subscriptionButton.Content = content;
+            subscriptionButton.IsEnabled = isEnabled;
+        }
+    }
+
+    private async Task LoadFollowingAsync(
+        string? query = null,
+        CancellationToken cancellationToken = default,
+        bool showLoading = true)
+    {
+        if (showLoading)
+        {
+            await _nowPlayingLoadGate.WaitAsync(cancellationToken);
+        }
+        else if (!await _nowPlayingLoadGate.WaitAsync(0, cancellationToken))
+        {
+            return;
+        }
+
+        try
+        {
+            if (showLoading)
+            {
+                NowPlayingStatus.Text = "Loading followed artists...";
+                NowPlayingList.ItemsSource = null;
+            }
+            try
+            {
+                var subscriptions = await MusicLibraryApi.GetSubscriptionsAsync(cancellationToken);
+                if (_libraryMode != LibraryMode.Following) return;
+                if (!string.IsNullOrWhiteSpace(query))
+                {
+                    subscriptions = subscriptions
+                        .Where(subscription => subscription.ArtistName.Contains(query.Trim(), StringComparison.OrdinalIgnoreCase))
+                        .ToList();
+                }
+                var hasChanges = !_followingSnapshot.SequenceEqual(subscriptions);
+                var canReplaceRows = showLoading || NowPlayingScroll.Offset.Y <= 1;
+                if ((showLoading || hasChanges) && canReplaceRows)
+                {
+                    _followingSnapshot = subscriptions.ToList();
+                    NowPlayingList.ItemsSource = subscriptions.Select(CreateFollowingRow).ToList();
+                }
+                NowPlayingStatus.Text = subscriptions.Count == 0
+                    ? (string.IsNullOrWhiteSpace(query) ? "You are not following any artists yet." : "No followed artists match your search.")
+                    : $"Following {subscriptions.Count} artist(s) | Updated {DateTime.Now:T}";
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception exception)
+            {
+                NowPlayingStatus.Text = exception.Message;
+            }
+        }
+        finally
+        {
+            _nowPlayingLoadGate.Release();
+        }
+    }
+
+    private Control CreateFollowingRow(ArtistSubscriptionSummary subscription)
+    {
+        var row = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("*,Auto"),
+            Margin = new Avalonia.Thickness(0, 0, 0, 10)
+        };
+        var details = new StackPanel { Spacing = 2 };
+        details.Children.Add(new TextBlock
+        {
+            Text = subscription.ArtistName,
+            FontWeight = Avalonia.Media.FontWeight.SemiBold
+        });
+        details.Children.Add(new TextBlock
+        {
+            Text = $"Following since {subscription.CreatedAt.LocalDateTime:g}",
+            Opacity = 0.7
+        });
+        row.Children.Add(details);
+
+        var removeButton = new Button { Content = "Unfollow" };
+        removeButton.Click += async (_, _) =>
+        {
+            removeButton.IsEnabled = false;
+            try
+            {
+                await MusicLibraryApi.DeleteSubscriptionAsync(subscription.Id);
+                _subscribedArtists.Remove(subscription.ArtistName);
+                await LoadFollowingAsync(LibrarySearchInput.Text);
+            }
+            catch (Exception exception)
+            {
+                removeButton.IsEnabled = true;
+                NowPlayingStatus.Text = exception.Message;
+            }
+        };
+        Grid.SetColumn(removeButton, 1);
+        row.Children.Add(removeButton);
+        return row;
+    }
+
+    private async Task LoadTrendingAsync(
+        string? query = null,
+        CancellationToken cancellationToken = default,
+        bool showLoading = true)
+    {
+        if (showLoading)
+        {
+            await _nowPlayingLoadGate.WaitAsync(cancellationToken);
+        }
+        else if (!await _nowPlayingLoadGate.WaitAsync(0, cancellationToken))
+        {
+            return;
+        }
+
+        try
+        {
+            if (showLoading)
+            {
+                NowPlayingStatus.Text = string.IsNullOrWhiteSpace(query) ? "Loading 24-hour trends..." : "Searching trends...";
+                NowPlayingList.ItemsSource = null;
+            }
+            try
+            {
+                var trends = await MusicLibraryApi.GetTrendingAsync(query, cancellationToken);
+                if (_libraryMode != LibraryMode.Trending) return;
+                var hasChanges = !_trendingSnapshot.SequenceEqual(trends);
+                var canReplaceRows = showLoading || NowPlayingScroll.Offset.Y <= 1;
+                if ((showLoading || hasChanges) && canReplaceRows)
+                {
+                    _trendingSnapshot = trends.ToList();
+                    NowPlayingList.ItemsSource = trends.Select((trend, index) => CreateTrendingRow(trend, index + 1)).ToList();
+                }
+                NowPlayingStatus.Text = trends.Count == 0
+                    ? (string.IsNullOrWhiteSpace(query) ? "No trends detected in the past 24 hours." : "No matching trends found.")
+                    : hasChanges && !canReplaceRows
+                        ? $"{trends.Count} trend(s) | Rankings updated"
+                        : $"{trends.Count} trend(s) from the past 24 hours | Updated {DateTime.Now:T}";
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception exception)
+            {
+                NowPlayingStatus.Text = exception.Message;
+            }
+        }
+        finally
+        {
+            _nowPlayingLoadGate.Release();
+        }
+    }
+
+    private static Control CreateTrendingRow(TrendingSummary trend, int rank)
+    {
+        var row = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("Auto,12,*"),
+            RowDefinitions = new RowDefinitions("Auto,Auto"),
+            Margin = new Avalonia.Thickness(0, 0, 0, 12)
+        };
+        row.Children.Add(new TextBlock
+        {
+            Text = $"#{rank}",
+            FontSize = 16,
+            FontWeight = Avalonia.Media.FontWeight.SemiBold,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+        });
+        var details = new StackPanel { Spacing = 2 };
+        details.Children.Add(new TextBlock
+        {
+            Text = string.IsNullOrWhiteSpace(trend.Title) ? trend.Artist : $"{trend.Artist} - {trend.Title}",
+            FontWeight = Avalonia.Media.FontWeight.SemiBold,
+            TextWrapping = Avalonia.Media.TextWrapping.Wrap
+        });
+        details.Children.Add(new TextBlock
+        {
+            Text = $"{trend.ObservationCount} detection(s) across {trend.StationCount} station(s)",
+            Opacity = 0.7
+        });
+        Grid.SetColumn(details, 2);
+        row.Children.Add(details);
+        var lastObserved = new TextBlock
+        {
+            Text = trend.LastObservedAt.LocalDateTime.ToString("g"),
+            Opacity = 0.65,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+        };
+        Grid.SetColumn(lastObserved, 2);
+        Grid.SetRow(lastObserved, 1);
+        row.Children.Add(lastObserved);
         return row;
     }
 
@@ -266,10 +707,13 @@ public sealed partial class MainView : UserControl
     {
         _libraryPollingCancellation?.Cancel();
         _probeStatusPollingCancellation?.Cancel();
+        NowPlayingNavigationButton.Classes.Set("active", false);
+        FollowingNavigationButton.Classes.Set("active", false);
+        TrendingNavigationButton.Classes.Set("active", false);
         LibraryView.IsVisible = false;
         AdministrationView.IsVisible = true;
         await Task.WhenAll(LoadAdminUsersAsync(), LoadProbeStatusAsync(), LoadGlobalConfigAsync());
-        if (AdministrationView.IsVisible)
+        if (AdministrationView.IsVisible && MusicLibraryApi.IsAuthenticated)
         {
             StartProbeStatusPolling();
         }
@@ -289,7 +733,12 @@ public sealed partial class MainView : UserControl
             while (!cancellationToken.IsCancellationRequested)
             {
                 await Task.Delay(TimeSpan.FromSeconds(3), cancellationToken);
-                await LoadProbeStatusAsync(ProbeStationSearchInput.Text, _probePage, cancellationToken, showLoading: false);
+                await LoadProbeStatusAsync(
+                    ProbeStationSearchInput.Text,
+                    _probePage,
+                    cancellationToken,
+                    showLoading: false,
+                    updateStations: false);
             }
         }
         catch (OperationCanceledException)
@@ -299,7 +748,15 @@ public sealed partial class MainView : UserControl
 
     private async void RefreshProbeStatus_Click(object? sender, RoutedEventArgs eventArgs)
     {
-        await LoadProbeStatusAsync(ProbeStationSearchInput.Text, _probePage);
+        RefreshProbeStatusButton.IsEnabled = false;
+        try
+        {
+            await LoadProbeStatusAsync(ProbeStationSearchInput.Text, _probePage);
+        }
+        finally
+        {
+            RefreshProbeStatusButton.IsEnabled = true;
+        }
     }
 
     private async void ProbeStationSearchInput_TextChanged(object? sender, TextChangedEventArgs eventArgs)
@@ -319,6 +776,8 @@ public sealed partial class MainView : UserControl
 
     private async void ImportStations_Click(object? sender, RoutedEventArgs eventArgs)
     {
+        ImportStationsButton.IsEnabled = false;
+        _probeStatusPollingCancellation?.Cancel();
         ProbeStatus.Text = "Importing stations...";
         try
         {
@@ -330,6 +789,11 @@ public sealed partial class MainView : UserControl
         catch (Exception exception)
         {
             ProbeStatus.Text = exception.Message;
+        }
+        finally
+        {
+            ImportStationsButton.IsEnabled = true;
+            if (AdministrationView.IsVisible && MusicLibraryApi.IsAuthenticated) StartProbeStatusPolling();
         }
     }
 
@@ -349,6 +813,9 @@ public sealed partial class MainView : UserControl
         catch (Exception exception)
         {
             ProbeStatus.Text = exception.Message;
+        }
+        finally
+        {
             ProbeWorkerToggleButton.IsEnabled = true;
         }
     }
@@ -366,17 +833,29 @@ public sealed partial class MainView : UserControl
         catch (Exception exception)
         {
             ProbeStatus.Text = exception.Message;
+        }
+        finally
+        {
             StationProbesToggleButton.IsEnabled = true;
         }
     }
 
     private async void ReloadGlobalConfig_Click(object? sender, RoutedEventArgs eventArgs)
     {
-        await LoadGlobalConfigAsync();
+        ReloadGlobalConfigButton.IsEnabled = false;
+        try
+        {
+            await LoadGlobalConfigAsync();
+        }
+        finally
+        {
+            ReloadGlobalConfigButton.IsEnabled = true;
+        }
     }
 
     private async void SaveGlobalConfig_Click(object? sender, RoutedEventArgs eventArgs)
     {
+        SaveGlobalConfigButton.IsEnabled = false;
         GlobalConfigStatus.Text = "Saving configuration...";
         try
         {
@@ -409,6 +888,10 @@ public sealed partial class MainView : UserControl
         {
             GlobalConfigStatus.Text = exception.Message;
         }
+        finally
+        {
+            SaveGlobalConfigButton.IsEnabled = true;
+        }
     }
 
     private async Task LoadGlobalConfigAsync()
@@ -434,57 +917,98 @@ public sealed partial class MainView : UserControl
     private async void PreviousProbePage_Click(object? sender, RoutedEventArgs eventArgs)
     {
         if (_probePage <= 1) return;
-        await LoadProbeStatusAsync(ProbeStationSearchInput.Text, _probePage - 1);
+        PreviousProbePageButton.IsEnabled = false;
+        NextProbePageButton.IsEnabled = false;
+        try
+        {
+            await LoadProbeStatusAsync(ProbeStationSearchInput.Text, _probePage - 1);
+        }
+        finally
+        {
+            PreviousProbePageButton.IsEnabled = _probePage > 1;
+            NextProbePageButton.IsEnabled = _probePage < _probePageCount;
+        }
     }
 
     private async void NextProbePage_Click(object? sender, RoutedEventArgs eventArgs)
     {
-        await LoadProbeStatusAsync(ProbeStationSearchInput.Text, _probePage + 1);
+        PreviousProbePageButton.IsEnabled = false;
+        NextProbePageButton.IsEnabled = false;
+        try
+        {
+            await LoadProbeStatusAsync(ProbeStationSearchInput.Text, _probePage + 1);
+        }
+        finally
+        {
+            PreviousProbePageButton.IsEnabled = _probePage > 1;
+            NextProbePageButton.IsEnabled = _probePage < _probePageCount;
+        }
     }
 
     private async Task LoadProbeStatusAsync(
         string? query = null,
         int page = 1,
         CancellationToken cancellationToken = default,
-        bool showLoading = true)
+        bool showLoading = true,
+        bool updateStations = true)
     {
         if (showLoading)
         {
-            ProbeStatus.Text = "Loading probe status...";
-            ProbeStationsList.ItemsSource = null;
+            await _probeStatusLoadGate.WaitAsync(cancellationToken);
         }
+        else if (!await _probeStatusLoadGate.WaitAsync(0, cancellationToken))
+        {
+            return;
+        }
+
         try
         {
-            var status = await MusicLibraryApi.GetAdminProbeStatusAsync(query, page, ProbePageSize, cancellationToken);
-            _probePage = status.Page;
-            SetProbingEnabledState(status.ProbingEnabled);
-            _enabledStationCount = status.EnabledStationCount;
-            StationProbesToggleButton.Content = status.EnabledStationCount == 0 ? "Enable all stations" : "Disable all stations";
-            StationProbesToggleButton.IsEnabled = status.MatchingStationCount > 0;
-            ProbeStationsList.ItemsSource = status.Stations.Select(CreateProbeStatusRow).ToList();
-            var pageCount = Math.Max(1, (int)Math.Ceiling(status.MatchingStationCount / (double)status.PageSize));
-            ProbePageStatus.Text = $"Page {status.Page} of {pageCount}";
-            PreviousProbePageButton.IsEnabled = status.Page > 1;
-            NextProbePageButton.IsEnabled = status.Page < pageCount;
-            var workerState = status.ProbingEnabled ? "enabled" : "disabled";
-            var batchState = status.LastBatchStartedAt is null
-                ? "No probe batch has run since the API started."
-                : status.LastBatchCompletedAt is null || status.LastBatchCompletedAt < status.LastBatchStartedAt
-                    ? $"Batch running since {status.LastBatchStartedAt.Value.LocalDateTime:g}."
-                    : $"Last batch completed {status.LastBatchCompletedAt.Value.LocalDateTime:g}.";
-            var stationState = status.MatchingStationCount == 0
-                ? (string.IsNullOrWhiteSpace(query) ? "No stations imported." : "No matching stations.")
-                : status.MatchingStationCount > status.Stations.Count
-                    ? $"Showing {status.Stations.Count} of {status.MatchingStationCount} matching stations."
-                    : $"{status.MatchingStationCount} station(s).";
-            ProbeStatus.Text = $"Worker {workerState} | {status.ActiveProbeCount} querying now | {status.EnabledStationCount} enabled | {stationState} {batchState} Updated {DateTime.Now:T}";
+            if (showLoading)
+            {
+                ProbeStatus.Text = "Loading probe status...";
+                ProbeStationsList.ItemsSource = null;
+            }
+            try
+            {
+                var status = await MusicLibraryApi.GetAdminProbeStatusAsync(query, page, ProbePageSize, cancellationToken);
+                _probePage = status.Page;
+                SetProbingEnabledState(status.ProbingEnabled);
+                _enabledStationCount = status.EnabledStationCount;
+                StationProbesToggleButton.Content = status.EnabledStationCount == 0 ? "Enable all stations" : "Disable all stations";
+                StationProbesToggleButton.IsEnabled = status.MatchingStationCount > 0;
+                if (updateStations)
+                {
+                    ProbeStationsList.ItemsSource = status.Stations.Select(CreateProbeStatusRow).ToList();
+                }
+                var pageCount = Math.Max(1, (int)Math.Ceiling(status.MatchingStationCount / (double)status.PageSize));
+                _probePageCount = pageCount;
+                ProbePageStatus.Text = $"Page {status.Page} of {pageCount}";
+                PreviousProbePageButton.IsEnabled = status.Page > 1;
+                NextProbePageButton.IsEnabled = status.Page < pageCount;
+                var workerState = status.ProbingEnabled ? "enabled" : "disabled";
+                var batchState = status.LastBatchStartedAt is null
+                    ? "No probe batch has run since the API started."
+                    : status.LastBatchCompletedAt is null || status.LastBatchCompletedAt < status.LastBatchStartedAt
+                        ? $"Batch running since {status.LastBatchStartedAt.Value.LocalDateTime:g}."
+                        : $"Last batch completed {status.LastBatchCompletedAt.Value.LocalDateTime:g}.";
+                var stationState = status.MatchingStationCount == 0
+                    ? (string.IsNullOrWhiteSpace(query) ? "No stations imported." : "No matching stations.")
+                    : status.MatchingStationCount > status.Stations.Count
+                        ? $"Showing {status.Stations.Count} of {status.MatchingStationCount} matching stations."
+                        : $"{status.MatchingStationCount} station(s).";
+                ProbeStatus.Text = $"Worker {workerState} | {status.ActiveProbeCount} querying now | {status.EnabledStationCount} enabled | {stationState} {batchState} Updated {DateTime.Now:T}";
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception exception)
+            {
+                ProbeStatus.Text = exception.Message;
+            }
         }
-        catch (OperationCanceledException)
+        finally
         {
-        }
-        catch (Exception exception)
-        {
-            ProbeStatus.Text = exception.Message;
+            _probeStatusLoadGate.Release();
         }
     }
 
@@ -509,6 +1033,7 @@ public sealed partial class MainView : UserControl
         var row = new Grid
         {
             ColumnDefinitions = new ColumnDefinitions("*,Auto"),
+            RowDefinitions = new RowDefinitions("Auto,Auto"),
             Margin = new Avalonia.Thickness(0, 0, 0, 10)
         };
         var details = new StackPanel { Spacing = 2 };
@@ -530,6 +1055,7 @@ public sealed partial class MainView : UserControl
             FontSize = 11,
             TextWrapping = Avalonia.Media.TextWrapping.Wrap
         });
+        Grid.SetColumnSpan(details, 2);
         row.Children.Add(details);
 
         var actions = new StackPanel
@@ -547,7 +1073,10 @@ public sealed partial class MainView : UserControl
         var toggleButton = new Button { Content = station.IsProbeEnabled ? "Disable" : "Enable" };
         toggleButton.Click += async (_, _) => await UpdateStationProbeAsync(station);
         actions.Children.Add(toggleButton);
-        Grid.SetColumn(actions, 1);
+        Grid.SetColumnSpan(actions, 2);
+        Grid.SetRow(actions, 1);
+        actions.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right;
+        actions.Margin = new Avalonia.Thickness(0, 6, 0, 0);
         row.Children.Add(actions);
         return row;
     }
@@ -589,19 +1118,23 @@ public sealed partial class MainView : UserControl
         var row = new Grid
         {
             ColumnDefinitions = new ColumnDefinitions("*,Auto"),
+            RowDefinitions = new RowDefinitions("Auto,Auto"),
             Margin = new Avalonia.Thickness(0, 0, 0, 8)
         };
         var identity = new StackPanel { Spacing = 2 };
         identity.Children.Add(new TextBlock
         {
             Text = $"{user.DisplayName ?? user.Email}{(isCurrentUser ? " (you)" : string.Empty)}",
-            FontWeight = Avalonia.Media.FontWeight.SemiBold
+            FontWeight = Avalonia.Media.FontWeight.SemiBold,
+            TextWrapping = Avalonia.Media.TextWrapping.Wrap
         });
         identity.Children.Add(new TextBlock
         {
             Text = $"{user.Email}  |  {(isAdmin ? "Administrator" : "User")}  |  {(user.IsActive ? "Enabled" : "Disabled")}",
-            Opacity = 0.7
+            Opacity = 0.7,
+            TextWrapping = Avalonia.Media.TextWrapping.Wrap
         });
+        Grid.SetColumnSpan(identity, 2);
         row.Children.Add(identity);
 
         var actions = new StackPanel
@@ -610,7 +1143,10 @@ public sealed partial class MainView : UserControl
             Spacing = 8,
             VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
         };
-        Grid.SetColumn(actions, 1);
+        Grid.SetColumnSpan(actions, 2);
+        Grid.SetRow(actions, 1);
+        actions.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right;
+        actions.Margin = new Avalonia.Thickness(0, 6, 0, 0);
 
         var activationButton = new Button { Content = user.IsActive ? "Disable" : "Enable", IsEnabled = !isCurrentUser };
         activationButton.Click += async (_, _) => await UpdateUserAsync(
@@ -682,6 +1218,7 @@ public sealed partial class MainView : UserControl
             NativeMediaStatus.Text = "Enter a valid HTTP or HTTPS station stream URL.";
             return;
         }
+        DownloadButton.IsEnabled = false;
         var seconds = int.TryParse(RecordingSecondsInput.Text, out var parsedSeconds) ? Math.Clamp(parsedSeconds, 10, 1800) : 300;
         try
         {
@@ -691,6 +1228,10 @@ public sealed partial class MainView : UserControl
         catch (Exception exception)
         {
             NativeMediaStatus.Text = exception.Message;
+        }
+        finally
+        {
+            DownloadButton.IsEnabled = true;
         }
     }
 
