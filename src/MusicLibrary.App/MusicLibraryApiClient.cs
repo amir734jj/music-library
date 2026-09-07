@@ -27,6 +27,18 @@ public interface IMusicLibraryApiClient
     [Get("/api/admin/probes/status")]
     Task<ApiResponse<ProbeStatusSummary>> GetAdminProbeStatusAsync([Authorize] string accessToken, CancellationToken cancellationToken = default);
 
+    [Get("/api/admin/config")]
+    Task<ApiResponse<GlobalConfigModel>> GetAdminConfigAsync([Authorize] string accessToken, CancellationToken cancellationToken = default);
+
+    [Put("/api/admin/config")]
+    Task<IApiResponse> SaveAdminConfigAsync([Body] UpdateGlobalConfigRequest request, [Authorize] string accessToken, CancellationToken cancellationToken = default);
+
+    [Post("/api/admin/stations/import")]
+    Task<ApiResponse<DirectoryImportSummary>> ImportAdminStationsAsync([Authorize] string accessToken, CancellationToken cancellationToken = default);
+
+    [Put("/api/admin/stations/{id}/probe")]
+    Task<IApiResponse> UpdateAdminStationProbeAsync(Guid id, [Body] UpdateStationProbeRequest request, [Authorize] string accessToken, CancellationToken cancellationToken = default);
+
     [Put("/api/admin/users/{id}")]
     Task<IApiResponse> UpdateAdminUserAsync(Guid id, [Body] UpdateUserRequest request, [Authorize] string accessToken, CancellationToken cancellationToken = default);
 
@@ -116,6 +128,61 @@ public static class MusicLibraryApi
         using var response = await Client.GetAdminProbeStatusAsync(_authentication!.AccessToken, cancellationToken);
         EnsureSuccess(response);
         return GetContent(response);
+    }
+
+    public static async Task<GlobalConfigModel> GetGlobalConfigAsync(CancellationToken cancellationToken = default)
+    {
+        if (!IsAuthenticated) throw new InvalidOperationException("An authenticated session is required.");
+        using var response = await Client.GetAdminConfigAsync(_authentication!.AccessToken, cancellationToken);
+        EnsureSuccess(response);
+        return GetContent(response);
+    }
+
+    public static async Task SaveGlobalConfigAsync(GlobalConfigModel config, CancellationToken cancellationToken = default)
+    {
+        if (!IsAuthenticated) throw new InvalidOperationException("An authenticated session is required.");
+        var values = new Dictionary<string, string>
+        {
+            ["DIRECTORY_ARTIFACT_URL"] = config.DirectoryArtifactUrl,
+            ["PROBING_ENABLED"] = config.ProbingEnabled.ToString(),
+            ["PROBE_CONCURRENCY"] = config.ProbeConcurrency.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["PROBE_TIMEOUT_SECONDS"] = config.ProbeTimeoutSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["PROBE_BATCH_SIZE"] = config.ProbeBatchSize.ToString(System.Globalization.CultureInfo.InvariantCulture)
+        };
+        using var response = await Client.SaveAdminConfigAsync(
+            new UpdateGlobalConfigRequest(values),
+            _authentication!.AccessToken,
+            cancellationToken);
+        EnsureSuccess(response);
+    }
+
+    public static async Task SetProbingEnabledAsync(bool enabled, CancellationToken cancellationToken = default)
+    {
+        if (!IsAuthenticated) throw new InvalidOperationException("An authenticated session is required.");
+        using var response = await Client.SaveAdminConfigAsync(
+            new UpdateGlobalConfigRequest(new Dictionary<string, string> { ["PROBING_ENABLED"] = enabled.ToString() }),
+            _authentication!.AccessToken,
+            cancellationToken);
+        EnsureSuccess(response);
+    }
+
+    public static async Task<DirectoryImportSummary> ImportStationsAsync(CancellationToken cancellationToken = default)
+    {
+        if (!IsAuthenticated) throw new InvalidOperationException("An authenticated session is required.");
+        using var response = await Client.ImportAdminStationsAsync(_authentication!.AccessToken, cancellationToken);
+        EnsureSuccess(response);
+        return GetContent(response);
+    }
+
+    public static async Task SetStationProbingEnabledAsync(Guid stationId, bool enabled, CancellationToken cancellationToken = default)
+    {
+        if (!IsAuthenticated) throw new InvalidOperationException("An authenticated session is required.");
+        using var response = await Client.UpdateAdminStationProbeAsync(
+            stationId,
+            new UpdateStationProbeRequest(enabled),
+            _authentication!.AccessToken,
+            cancellationToken);
+        EnsureSuccess(response);
     }
 
     public static async Task UpdateAdminUserAsync(UserSummary user, bool isActive, string? role = null, CancellationToken cancellationToken = default)

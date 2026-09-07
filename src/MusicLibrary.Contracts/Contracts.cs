@@ -49,5 +49,6 @@ public sealed record ArtistSubscriptionSummary(Guid Id, string ArtistName, DateT
 public sealed record CreateSubscriptionRequest(string ArtistName, bool CaptureEnabled);
 public sealed record UpdateGlobalConfigRequest(IReadOnlyDictionary<string, string> Values);
 public sealed record DirectoryImportSummary(int Created, int Updated, int Rejected);
+public sealed record UpdateStationProbeRequest(bool IsProbeEnabled);
 public sealed record UpdateUserRequest(string? DisplayName, bool IsActive, string? Role);
 public sealed record UserAlertSummary(Guid Id, string ArtistName, string StationName, string? TrackTitle, DateTimeOffset ObservedAt);

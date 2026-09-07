@@ -53,6 +53,16 @@ public sealed class AdminController(
             orderBy: Ordering<Station>.Asc(station => station.Name),
             project: station => new StationSummary(station.Id, station.Name, station.Genre, station.StreamUrl, station.IsProbeEnabled, station.LastProbedAt));
 
+    [HttpPut("stations/{id:guid}/probe")]
+    public async Task<IActionResult> UpdateStationProbe(Guid id, UpdateStationProbeRequest request)
+    {
+        var stations = repository.For<Station>();
+        if (!await stations.Any([station => station.Id == id])) return NotFound();
+
+        await stations.Update<Guid>(id, station => station.IsProbeEnabled = request.IsProbeEnabled);
+        return NoContent();
+    }
+
     [HttpGet("probes/status")]
     public async Task<ActionResult<ProbeStatusSummary>> GetProbeStatus(CancellationToken cancellationToken)
     {

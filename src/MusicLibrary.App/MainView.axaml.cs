@@ -7,6 +7,7 @@ namespace MusicLibrary.App;
 public sealed partial class MainView : UserControl
 {
     private CancellationTokenSource? _librarySearchCancellation;
+    private bool _probingEnabled;
 
     public bool IsBrowserHost { get; }
     public bool ShowNativeMedia
@@ -173,12 +174,101 @@ public sealed partial class MainView : UserControl
     {
         LibraryView.IsVisible = false;
         AdministrationView.IsVisible = true;
-        await Task.WhenAll(LoadAdminUsersAsync(), LoadProbeStatusAsync());
+        await Task.WhenAll(LoadAdminUsersAsync(), LoadProbeStatusAsync(), LoadGlobalConfigAsync());
     }
 
     private async void RefreshProbeStatus_Click(object? sender, RoutedEventArgs eventArgs)
     {
         await LoadProbeStatusAsync();
+    }
+
+    private async void ImportStations_Click(object? sender, RoutedEventArgs eventArgs)
+    {
+        ProbeStatus.Text = "Importing stations...";
+        try
+        {
+            var result = await MusicLibraryApi.ImportStationsAsync();
+            await LoadProbeStatusAsync();
+            ProbeStatus.Text = $"Import complete | {result.Created} created | {result.Updated} updated | {result.Rejected} rejected";
+        }
+        catch (Exception exception)
+        {
+            ProbeStatus.Text = exception.Message;
+        }
+    }
+
+    private async void ToggleProbeWorker_Click(object? sender, RoutedEventArgs eventArgs)
+    {
+        ProbeStatus.Text = _probingEnabled ? "Disabling probe worker..." : "Enabling probe worker...";
+        try
+        {
+            await MusicLibraryApi.SetProbingEnabledAsync(!_probingEnabled);
+            await Task.WhenAll(LoadProbeStatusAsync(), LoadGlobalConfigAsync());
+        }
+        catch (Exception exception)
+        {
+            ProbeStatus.Text = exception.Message;
+        }
+    }
+
+    private async void ReloadGlobalConfig_Click(object? sender, RoutedEventArgs eventArgs)
+    {
+        await LoadGlobalConfigAsync();
+    }
+
+    private async void SaveGlobalConfig_Click(object? sender, RoutedEventArgs eventArgs)
+    {
+        GlobalConfigStatus.Text = "Saving configuration...";
+        try
+        {
+            var directoryArtifactUrl = ConfigDirectoryArtifactUrlInput.Text?.Trim() ?? string.Empty;
+            if (!Uri.TryCreate(directoryArtifactUrl, UriKind.Absolute, out var directoryUri)
+                || directoryUri.Scheme != Uri.UriSchemeHttps)
+            {
+                throw new InvalidOperationException("Directory artifact URL must be an absolute HTTPS URL.");
+            }
+            if (ConfigProbeConcurrencyInput.Value is not { } probeConcurrency
+                || ConfigProbeTimeoutInput.Value is not { } probeTimeout
+                || ConfigProbeBatchSizeInput.Value is not { } probeBatchSize)
+            {
+                throw new InvalidOperationException("All numeric configuration values are required.");
+            }
+
+            var config = new GlobalConfigModel
+            {
+                DirectoryArtifactUrl = directoryArtifactUrl,
+                ProbingEnabled = ConfigProbingEnabledInput.IsChecked == true,
+                ProbeConcurrency = Convert.ToInt32(probeConcurrency),
+                ProbeTimeoutSeconds = Convert.ToInt32(probeTimeout),
+                ProbeBatchSize = Convert.ToInt32(probeBatchSize)
+            };
+            await MusicLibraryApi.SaveGlobalConfigAsync(config);
+            await Task.WhenAll(LoadGlobalConfigAsync(), LoadProbeStatusAsync());
+            GlobalConfigStatus.Text = "Configuration saved.";
+        }
+        catch (Exception exception)
+        {
+            GlobalConfigStatus.Text = exception.Message;
+        }
+    }
+
+    private async Task LoadGlobalConfigAsync()
+    {
+        GlobalConfigStatus.Text = "Loading configuration...";
+        try
+        {
+            var config = await MusicLibraryApi.GetGlobalConfigAsync();
+            ConfigDirectoryArtifactUrlInput.Text = config.DirectoryArtifactUrl;
+            ConfigProbingEnabledInput.IsChecked = config.ProbingEnabled;
+            ConfigProbeConcurrencyInput.Value = config.ProbeConcurrency;
+            ConfigProbeTimeoutInput.Value = config.ProbeTimeoutSeconds;
+            ConfigProbeBatchSizeInput.Value = config.ProbeBatchSize;
+            GlobalConfigStatus.Text = "Configuration loaded.";
+        }
+        catch (Exception exception)
+        {
+            GlobalConfigStatus.Text = exception.Message;
+        }
     }
 
     private async Task LoadProbeStatusAsync()
@@ -188,6 +278,8 @@ public sealed partial class MainView : UserControl
         try
         {
             var status = await MusicLibraryApi.GetAdminProbeStatusAsync();
+            _probingEnabled = status.ProbingEnabled;
+            ProbeWorkerToggleButton.Content = status.ProbingEnabled ? "Disable worker" : "Enable worker";
             ProbeStationsList.ItemsSource = status.Stations.Select(CreateProbeStatusRow).ToList();
             var workerState = status.ProbingEnabled ? "enabled" : "disabled";
             var batchState = status.LastBatchStartedAt is null
@@ -195,7 +287,8 @@ public sealed partial class MainView : UserControl
                 : status.LastBatchCompletedAt is null || status.LastBatchCompletedAt < status.LastBatchStartedAt
                     ? $"Batch running since {status.LastBatchStartedAt.Value.LocalDateTime:g}."
                     : $"Last batch completed {status.LastBatchCompletedAt.Value.LocalDateTime:g}.";
-            ProbeStatus.Text = $"Worker {workerState} | {status.ActiveProbeCount} querying now | {batchState}";
+            var stationState = status.Stations.Count == 0 ? "No stations imported." : $"{status.Stations.Count} station(s).";
+            ProbeStatus.Text = $"Worker {workerState} | {status.ActiveProbeCount} querying now | {stationState} {batchState}";
         }
         catch (Exception exception)
         {
@@ -203,7 +296,7 @@ public sealed partial class MainView : UserControl
         }
     }
 
-    private static Control CreateProbeStatusRow(StationProbeStatusSummary station)
+    private Control CreateProbeStatusRow(StationProbeStatusSummary station)
     {
         var state = station.IsProbing
             ? $"Querying since {station.ProbeStartedAt!.Value.LocalDateTime:t}"
@@ -240,15 +333,38 @@ public sealed partial class MainView : UserControl
         });
         row.Children.Add(details);
 
-        var stateText = new TextBlock
+        var actions = new StackPanel
+        {
+            Orientation = Avalonia.Layout.Orientation.Horizontal,
+            Spacing = 8,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+        };
+        actions.Children.Add(new TextBlock
         {
             Text = state,
             FontWeight = station.IsProbing ? Avalonia.Media.FontWeight.SemiBold : Avalonia.Media.FontWeight.Normal,
             VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
-        };
-        Grid.SetColumn(stateText, 1);
-        row.Children.Add(stateText);
+        });
+        var toggleButton = new Button { Content = station.IsProbeEnabled ? "Disable" : "Enable" };
+        toggleButton.Click += async (_, _) => await UpdateStationProbeAsync(station);
+        actions.Children.Add(toggleButton);
+        Grid.SetColumn(actions, 1);
+        row.Children.Add(actions);
         return row;
+    }
+
+    private async Task UpdateStationProbeAsync(StationProbeStatusSummary station)
+    {
+        ProbeStatus.Text = $"{(station.IsProbeEnabled ? "Disabling" : "Enabling")} {station.Name}...";
+        try
+        {
+            await MusicLibraryApi.SetStationProbingEnabledAsync(station.Id, !station.IsProbeEnabled);
+            await LoadProbeStatusAsync();
+        }
+        catch (Exception exception)
+        {
+            ProbeStatus.Text = exception.Message;
+        }
     }
 
     private async Task LoadAdminUsersAsync()
