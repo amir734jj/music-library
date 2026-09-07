@@ -1,0 +1,8 @@
+<Solution>
+  <Project Path="src/MusicLibrary.Contracts/MusicLibrary.Contracts.csproj" />
+  <Project Path="src/MusicLibrary.Api/MusicLibrary.Api.csproj" />
+  <Project Path="src/MusicLibrary.App/MusicLibrary.App.csproj" />
+  <Project Path="src/MusicLibrary.App.Desktop/MusicLibrary.App.Desktop.csproj" />
+  <Project Path="src/MusicLibrary.App.Android/MusicLibrary.App.Android.csproj" />
+  <Project Path="src/MusicLibrary.App.Browser/MusicLibrary.App.Browser.csproj" />
+</Solution>

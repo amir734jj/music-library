@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>WinExe</OutputType><RootNamespace>MusicLibrary.App.Desktop</RootNamespace></PropertyGroup>
+  <ItemGroup><ProjectReference Include="..\MusicLibrary.App\MusicLibrary.App.csproj" /><PackageReference Include="Avalonia.Desktop" Version="12.1.1" /></ItemGroup>
+</Project>

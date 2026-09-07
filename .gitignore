@@ -1,0 +1,26 @@
+# Build and IDE output
+[Bb]in/
+[Oo]bj/
+[Ll]og[s]/
+.vs/
+artifacts/
+TestResults/
+
+# Local application configuration and databases
+appsettings.Development.json
+appsettings.Local.json
+*.db
+*.db-shm
+*.db-wal
+
+# Android build output and signing material
+*.apk
+*.aab
+*.keystore
+*.jks
+*.pfx
+
+# User-specific IDE files
+*.user
+*.suo
+*.rsuser

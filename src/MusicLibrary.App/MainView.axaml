@@ -1,0 +1,28 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:Class="MusicLibrary.App.MainView" x:Name="Root">
+  <Grid RowDefinitions="Auto,*" Margin="16">
+    <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,16">
+      <StackPanel Spacing="3">
+        <TextBlock Text="Music Library" FontSize="22" FontWeight="SemiBold" />
+        <TextBlock Text="Live radio artist index" Opacity="0.65" />
+      </StackPanel>
+      <Border Grid.Column="1" Classes="panel" Padding="8,4" VerticalAlignment="Center"><TextBlock Text="Connected" Foreground="#26834A" /></Border>
+    </Grid>
+    <Grid Grid.Row="1" ColumnDefinitions="240,16,*" RowDefinitions="*,Auto">
+      <Border Classes="panel"><StackPanel Spacing="8"><TextBlock Text="Library" FontWeight="SemiBold" /><Button Content="Now playing" HorizontalContentAlignment="Left" /><Button Content="Following" HorizontalContentAlignment="Left" /><Button Content="Trending" HorizontalContentAlignment="Left" /><Separator Margin="0,6" IsVisible="{Binding ShowAdministration, ElementName=Root}" /><Button Content="Administration" HorizontalContentAlignment="Left" IsVisible="{Binding ShowAdministration, ElementName=Root}" /></StackPanel></Border>
+      <Grid Grid.Column="2" RowDefinitions="Auto,12,*,12,Auto">
+        <TextBox Watermark="Search artist or station" />
+        <Border Grid.Row="2" Classes="panel"><StackPanel Spacing="12"><TextBlock Text="Now Playing" FontSize="18" FontWeight="SemiBold" /><TextBlock Text="Live observations will appear here after station probing is enabled by an administrator." Opacity="0.7" TextWrapping="Wrap" /></StackPanel></Border>
+        <Border Grid.Row="4" Classes="panel" IsVisible="{Binding ShowNativeMedia, ElementName=Root}">
+          <Grid ColumnDefinitions="*,8,100,8,Auto,8,Auto" RowDefinitions="Auto,6,Auto,6,Auto">
+            <TextBlock Grid.ColumnSpan="7" Text="Live station" FontWeight="SemiBold" />
+            <TextBox Grid.Row="2" Name="StreamUrlInput" Watermark="https://station.example/stream" />
+            <TextBox Grid.Row="2" Grid.Column="2" Name="RecordingSecondsInput" Text="300" Watermark="Seconds" />
+            <Button Grid.Row="2" Grid.Column="4" Content="Listen" Click="Listen_Click" />
+            <Button Grid.Row="2" Grid.Column="6" Content="Download" Click="Download_Click" />
+            <TextBlock Grid.Row="4" Grid.ColumnSpan="7" Name="NativeMediaStatus" FontSize="12" Opacity="0.7" TextWrapping="Wrap" />
+          </Grid>
+        </Border>
+      </Grid>
+    </Grid>
+  </Grid>
+</UserControl>

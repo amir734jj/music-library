@@ -1,0 +1,83 @@
+name: Android latest release
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-latest-release
+  cancel-in-progress: true
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    env:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install Android workload
+        run: dotnet workload install android --skip-manifest-update
+
+      - name: Restore Android application
+        run: dotnet restore src/MusicLibrary.App.Android/MusicLibrary.App.Android.csproj
+
+      - name: Prepare signing key
+        shell: bash
+        run: |
+          test -n "$ANDROID_KEYSTORE_BASE64"
+          test -n "$ANDROID_KEYSTORE_PASSWORD"
+          test -n "$ANDROID_KEY_ALIAS"
+          test -n "$ANDROID_KEY_PASSWORD"
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/music-library.keystore"
+
+      - name: Build signed APK
+        shell: bash
+        run: |
+          dotnet publish src/MusicLibrary.App.Android/MusicLibrary.App.Android.csproj \
+            --configuration Release \
+            --framework net10.0-android \
+            --no-restore \
+            --output artifacts/android \
+            -p:AndroidPackageFormat=apk \
+            -p:AndroidKeyStore=true \
+            -p:AndroidSigningKeyStore="$RUNNER_TEMP/music-library.keystore" \
+            -p:AndroidSigningStorePass="$ANDROID_KEYSTORE_PASSWORD" \
+            -p:AndroidSigningKeyAlias="$ANDROID_KEY_ALIAS" \
+            -p:AndroidSigningKeyPass="$ANDROID_KEY_PASSWORD"
+          find artifacts/android -type f -name '*.apk' -print -quit | xargs -I{} cp {} artifacts/music-library-latest.apk
+
+      - name: Upload workflow APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: music-library-latest-apk
+          path: artifacts/music-library-latest.apk
+          if-no-files-found: error
+
+      - name: Create or update latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest artifacts/music-library-latest.apk \
+            --target "$GITHUB_SHA" \
+            --title "Latest" \
+            --prerelease \
+            --notes "Latest Android APK build."
