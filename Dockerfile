@@ -10,7 +10,9 @@ COPY . .
 RUN dotnet publish src/MusicLibrary.App.Browser/MusicLibrary.App.Browser.csproj \
     --configuration Release \
     --output /publish/browser
-RUN mkdir -p src/MusicLibrary.Api/wwwroot && cp -a /publish/browser/. src/MusicLibrary.Api/wwwroot/
+RUN mkdir -p src/MusicLibrary.Api/wwwroot \
+    && cp -a /publish/browser/wwwroot/. src/MusicLibrary.Api/wwwroot/ \
+    && test -f src/MusicLibrary.Api/wwwroot/index.html
 RUN dotnet publish src/MusicLibrary.Api/MusicLibrary.Api.csproj \
     --configuration Release \
     --output /publish/api
