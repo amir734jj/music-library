@@ -8,7 +8,7 @@ internal static class Program
 {
     private static async Task Main(string[] args)
     {
-        await JSHost.ImportAsync(BrowserAuthenticationSessionStorage.ModuleName, "./authenticationSession.js");
+        await JSHost.ImportAsync(BrowserAuthenticationSessionStorage.ModuleName, "/authenticationSession.js");
         MusicLibrary.App.App.IsBrowserHost = true;
         MusicLibrary.App.AuthenticationSessionStorage.Load = BrowserAuthenticationSessionStorage.Load;
         MusicLibrary.App.AuthenticationSessionStorage.Save = BrowserAuthenticationSessionStorage.Save;

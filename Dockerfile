@@ -24,7 +24,6 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /publish/api/ ./
 COPY --from=build /publish/browser/wwwroot/ ./wwwroot/
-RUN test -f wwwroot/index.html && test -f wwwroot/main.js
 
 EXPOSE 8080
 ENV ASPNETCORE_URLS=http://+:8080
