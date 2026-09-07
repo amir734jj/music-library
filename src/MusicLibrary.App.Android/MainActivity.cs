@@ -13,6 +13,7 @@ public sealed class MainActivity : AvaloniaMainActivity
 {
     protected override void OnCreate(Bundle? savedInstanceState)
     {
+        MusicLibraryApi.Configure(new Uri("https://music-library.coolify.hesamian.com/"));
         NativeRadioActions.ListenAsync = streamUri =>
         {
             var intent = new Intent(Intent.ActionView);

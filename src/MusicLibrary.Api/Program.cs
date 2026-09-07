@@ -2,6 +2,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
 using MusicLibrary.Api.Data;
+using MusicLibrary.Api.Infrastructure;
 using MusicLibrary.Api.Services;
 using MusicLibrary.Api.Workers;
 using MusicLibrary.Contracts;
@@ -21,7 +22,8 @@ builder.Host.UseSerilog((context, services, configuration) => configuration
     .Enrich.FromLogContext()
     .Enrich.WithProperty("Application", "music-library-api")
     .WriteTo.Console());
-var connectionString = builder.Configuration.GetConnectionString("MusicLibrary") ?? throw new InvalidOperationException("ConnectionStrings:MusicLibrary is required.");
+var databaseUrl = builder.Configuration["DATABASE_URL"] ?? throw new InvalidOperationException("DATABASE_URL is required.");
+var connectionString = DatabaseUrlConverter.ToConnectionString(databaseUrl);
 var jwtKey = builder.Configuration["Jwt:Key"] ?? throw new InvalidOperationException("Jwt:Key is required.");
 
 builder.Services.AddDbContext<MusicLibraryDbContext>(options => options.UseNpgsql(connectionString));
@@ -93,7 +95,7 @@ else
 
 using (var scope = app.Services.CreateScope())
 {
-    app.Logger.LogInformation("Initializing Music Library database and roles.");
+    app.Logger.LogInformation("Initializing Music Library PostgreSQL database and roles.");
     var dbContext = scope.ServiceProvider.GetRequiredService<MusicLibraryDbContext>();
     await dbContext.Database.EnsureCreatedAsync();
     var roles = scope.ServiceProvider.GetRequiredService<RoleManager<ApplicationRole>>();

@@ -6,20 +6,20 @@ The API owns radio probing. It is disabled by default and only probes stations e
 
 ## Hosts
 
-- `MusicLibrary.Api`: PostgreSQL, Entity Framework Core, ASP.NET Core Identity, JWT API, administration, and bounded probe worker.
+- `MusicLibrary.Api`: PostgreSQL via required `DATABASE_URL`, Entity Framework Core, ASP.NET Core Identity, JWT API, administration, and bounded probe worker.
 - `MusicLibrary.App`: shared Avalonia views and visual rules.
 - `MusicLibrary.App.Desktop`: desktop host.
 - `MusicLibrary.App.Android`: Android host.
 - `MusicLibrary.App.Browser`: WebAssembly host for the user and administrator web experience.
 
-Configure `ConnectionStrings:MusicLibrary` and replace `Jwt:Key` before starting the API. The first account created through `POST /api/auth/register` is automatically granted the `Admin` role; that admin can promote other users to `Admin` later via `PUT /api/admin/users/{id}`.
+Set `DATABASE_URL` and replace `Jwt:Key` before starting the API. The first account created through `POST /api/auth/register` is automatically granted the `Admin` role; that admin can promote other users to `Admin` later via `PUT /api/admin/users/{id}`.
 
 ## Building locally
 
 Prerequisites:
 
 - [.NET SDK 10.0](https://dotnet.microsoft.com/download) (`dotnet --list-sdks` should show a `10.0.x` entry).
-- A PostgreSQL instance reachable via the connection string in `src/MusicLibrary.Api/appsettings.json` (`ConnectionStrings:MusicLibrary`).
+- A PostgreSQL database URL set through the required `DATABASE_URL` environment variable.
 - A JDK and the .NET Android workload, only if you intend to build `MusicLibrary.App.Android` (see below).
 
 Restore and build the non-Android hosts:
@@ -67,4 +67,8 @@ docker build --tag music-library-web .
 docker run --rm --publish 8080:8080 music-library-web
 ```
 
-Supply production database and JWT configuration with environment variables, for example `ConnectionStrings__MusicLibrary` and `Jwt__Key`.
+Supply database and JWT configuration with environment variables in every environment. `DATABASE_URL` is required and must use standard `postgresql://username:password@host:5432/database?sslmode=require` form; the API converts it to an Npgsql connection string at startup. Also configure `Jwt__Key`.
+
+## Native API endpoint
+
+The desktop and Android hosts use `https://music-library.coolify.hesamian.com/` as their API base URL. On startup, each native app requests `GET /api/health` and displays whether the deployed API is available. Subsequent authenticated API calls use the shared `MusicLibraryApi` client.

@@ -9,6 +9,7 @@ internal static class Program
     [STAThread]
     public static void Main(string[] args)
     {
+        MusicLibraryApi.Configure(new Uri("https://music-library.coolify.hesamian.com/"));
         NativeRadioActions.ListenAsync = streamUri =>
         {
             Process.Start(new ProcessStartInfo(streamUri.AbsoluteUri) { UseShellExecute = true });

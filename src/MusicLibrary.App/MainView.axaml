@@ -5,7 +5,7 @@
         <TextBlock Text="Music Library" FontSize="22" FontWeight="SemiBold" />
         <TextBlock Text="Live radio artist index" Opacity="0.65" />
       </StackPanel>
-      <Border Grid.Column="1" Classes="panel" Padding="8,4" VerticalAlignment="Center"><TextBlock Text="Connected" Foreground="#26834A" /></Border>
+      <Border Grid.Column="1" Classes="panel" Padding="8,4" VerticalAlignment="Center"><TextBlock Name="ApiConnectionStatus" Text="Starting" Foreground="#26834A" /></Border>
     </Grid>
     <Grid Grid.Row="1" ColumnDefinitions="240,16,*" RowDefinitions="*,Auto">
       <Border Classes="panel"><StackPanel Spacing="8"><TextBlock Text="Library" FontWeight="SemiBold" /><Button Content="Now playing" HorizontalContentAlignment="Left" /><Button Content="Following" HorizontalContentAlignment="Left" /><Button Content="Trending" HorizontalContentAlignment="Left" /><Separator Margin="0,6" IsVisible="{Binding ShowAdministration, ElementName=Root}" /><Button Content="Administration" HorizontalContentAlignment="Left" IsVisible="{Binding ShowAdministration, ElementName=Root}" /></StackPanel></Border>
