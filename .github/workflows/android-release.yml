@@ -37,8 +37,7 @@ jobs:
             --configuration Release \
             --framework net10.0-android36.0 \
             --output artifacts/android \
-            -p:AndroidPackageFormat=apk \
-            -p:SelfContained=false
+            -p:AndroidPackageFormat=apk
           find artifacts/android -type f -name '*.apk' -print -quit | xargs -I{} cp {} artifacts/music-library-latest.apk
 
       - name: Upload workflow APK artifact
