@@ -10,10 +10,6 @@ COPY . .
 RUN dotnet publish src/MusicLibrary.App.Browser/MusicLibrary.App.Browser.csproj \
     --configuration Release \
     --output /publish/browser
-RUN mkdir -p src/MusicLibrary.Api/wwwroot \
-    && cp -a /publish/browser/. src/MusicLibrary.Api/wwwroot/ \
-    && test -f src/MusicLibrary.Api/wwwroot/index.html \
-    && test -f src/MusicLibrary.Api/wwwroot/main.js
 RUN dotnet publish src/MusicLibrary.Api/MusicLibrary.Api.csproj \
     --configuration Release \
     --output /publish/api
@@ -24,6 +20,8 @@ RUN apt-get update \
     && apt-get install --yes --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /publish/api/ ./
+COPY --from=build /publish/browser/wwwroot/ ./wwwroot/
+RUN test -f wwwroot/index.html && test -f wwwroot/main.js
 
 EXPOSE 8080
 ENV ASPNETCORE_URLS=http://+:8080
