@@ -20,6 +20,7 @@ public sealed partial class MainView : UserControl
     {
         IsBrowserHost = showAdministration;
         InitializeComponent();
+        AuthenticationView.Authenticated += AuthenticationView_Authenticated;
         AuthenticationView.IsVisible = IsBrowserHost;
         ApplicationView.IsVisible = !IsBrowserHost;
         SignOutButton.IsVisible = IsBrowserHost;
@@ -62,52 +63,13 @@ public sealed partial class MainView : UserControl
         }
     }
 
-    private async void Login_Click(object? sender, RoutedEventArgs eventArgs)
+    private void AuthenticationView_Authenticated(object? sender, AuthenticatedEventArgs eventArgs)
     {
-        await AuthenticateAsync(register: false);
-    }
-
-    private async void Register_Click(object? sender, RoutedEventArgs eventArgs)
-    {
-        await AuthenticateAsync(register: true);
-    }
-
-    private async Task AuthenticateAsync(bool register)
-    {
-        AuthenticationStatus.Text = register ? "Creating account..." : "Signing in...";
-        try
-        {
-            var email = AuthEmailInput.Text?.Trim() ?? string.Empty;
-            var password = AuthPasswordInput.Text ?? string.Empty;
-            if (register)
-            {
-                var passwordConfirmation = AuthPasswordConfirmationInput.Text ?? string.Empty;
-                if (password != passwordConfirmation) throw new InvalidOperationException("Passwords do not match.");
-
-                var registration = await MusicLibraryApi.RegisterAsync(
-                    new RegisterRequest(email, password, passwordConfirmation, AuthDisplayNameInput.Text?.Trim()));
-                AuthPasswordInput.Text = string.Empty;
-                AuthPasswordConfirmationInput.Text = string.Empty;
-                AuthDisplayNameInput.Text = string.Empty;
-                AuthPasswordInput.Focus();
-                AuthenticationStatus.Text = registration.User.IsActive
-                    ? "Account created. Sign in to continue."
-                    : "Account created. An administrator must enable it before you can sign in.";
-                return;
-            }
-
-            var authentication = await MusicLibraryApi.LoginAsync(new LoginRequest(email, password));
-            ShowAuthenticatedApplication(authentication.User);
-        }
-        catch (Exception exception)
-        {
-            AuthenticationStatus.Text = exception.Message;
-        }
+        ShowAuthenticatedApplication(eventArgs.User);
     }
 
     private void ShowAuthenticatedApplication(UserSummary user)
     {
-        AuthenticationStatus.Text = string.Empty;
         AuthenticationView.IsVisible = false;
         ApplicationView.IsVisible = true;
         CurrentUserStatus.Text = user.DisplayName ?? user.Email;
@@ -120,11 +82,9 @@ public sealed partial class MainView : UserControl
     private void SignOut_Click(object? sender, RoutedEventArgs eventArgs)
     {
         MusicLibraryApi.SignOut();
-        AuthPasswordInput.Text = string.Empty;
-        AuthPasswordConfirmationInput.Text = string.Empty;
         ApplicationView.IsVisible = false;
         AuthenticationView.IsVisible = true;
-        AuthenticationStatus.Text = string.Empty;
+        AuthenticationView.Reset();
     }
 
     private void Library_Click(object? sender, RoutedEventArgs eventArgs)

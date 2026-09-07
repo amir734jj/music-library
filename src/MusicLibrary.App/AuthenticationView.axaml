@@ -1,0 +1,15 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:Class="MusicLibrary.App.AuthenticationView">
+  <Border Classes="panel" MaxWidth="380" HorizontalAlignment="Stretch" VerticalAlignment="Center" Padding="24">
+    <StackPanel Spacing="12">
+      <TextBlock Text="Music Library" FontSize="24" FontWeight="SemiBold" />
+      <TextBlock Name="AuthenticationSubtitle" Text="Sign in to your account" Opacity="0.7" />
+      <TextBox Name="AuthEmailInput" PlaceholderText="Email" />
+      <TextBox Name="AuthDisplayNameInput" PlaceholderText="Display name" IsVisible="False" />
+      <TextBox Name="AuthPasswordInput" PlaceholderText="Password" PasswordChar="*" />
+      <TextBox Name="AuthPasswordConfirmationInput" PlaceholderText="Confirm password" PasswordChar="*" IsVisible="False" />
+      <Button Name="AuthenticationSubmitButton" Content="Sign in" HorizontalAlignment="Stretch" Click="AuthenticationSubmit_Click" />
+      <Button Name="AuthenticationModeButton" Content="Register" HorizontalAlignment="Center" Click="AuthenticationMode_Click" />
+      <TextBlock Name="AuthenticationStatus" TextWrapping="Wrap" Foreground="#B42318" />
+    </StackPanel>
+  </Border>
+</UserControl>

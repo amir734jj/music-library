@@ -1,22 +1,6 @@
-<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:Class="MusicLibrary.App.MainView" x:Name="Root">
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="clr-namespace:MusicLibrary.App" x:Class="MusicLibrary.App.MainView" x:Name="Root">
   <Grid>
-    <Grid Name="AuthenticationView" IsVisible="False" Margin="24">
-      <Border Classes="panel" MaxWidth="380" HorizontalAlignment="Stretch" VerticalAlignment="Center" Padding="24">
-        <StackPanel Spacing="12">
-          <TextBlock Text="Music Library" FontSize="24" FontWeight="SemiBold" />
-          <TextBlock Text="Sign in or create an account" Opacity="0.7" />
-          <TextBox Name="AuthEmailInput" PlaceholderText="Email" />
-          <TextBox Name="AuthDisplayNameInput" PlaceholderText="Display name (registration)" />
-          <TextBox Name="AuthPasswordInput" PlaceholderText="Password" PasswordChar="*" />
-          <TextBox Name="AuthPasswordConfirmationInput" PlaceholderText="Confirm password (registration)" PasswordChar="*" />
-          <Grid ColumnDefinitions="*,12,*">
-            <Button Content="Sign in" HorizontalAlignment="Stretch" Click="Login_Click" />
-            <Button Grid.Column="2" Content="Register" HorizontalAlignment="Stretch" Click="Register_Click" />
-          </Grid>
-          <TextBlock Name="AuthenticationStatus" TextWrapping="Wrap" Foreground="#B42318" />
-        </StackPanel>
-      </Border>
-    </Grid>
+    <local:AuthenticationView Name="AuthenticationView" IsVisible="False" Margin="24" />
     <Grid Name="ApplicationView" RowDefinitions="Auto,*" Margin="16">
     <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,16">
       <StackPanel Spacing="3">
