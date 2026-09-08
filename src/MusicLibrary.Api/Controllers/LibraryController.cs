@@ -119,6 +119,7 @@ public sealed class LibraryController(
 
     [AllowAnonymous]
     [HttpGet("live-stream/{ticket}")]
+    [HttpHead("live-stream/{ticket}")]
     public async Task ProxyLiveStream(string ticket, CancellationToken cancellationToken)
     {
         if (!liveStreamTickets.TryResolve(ticket, out var stationId))
@@ -156,6 +157,8 @@ public sealed class LibraryController(
             Response.ContentType = upstream.Content.Headers.ContentType?.ToString() ?? "audio/mpeg";
             Response.Headers.CacheControl = "no-store";
             Response.Headers["X-Accel-Buffering"] = "no";
+            if (HttpMethods.IsHead(Request.Method)) return;
+
             HttpContext.Features.Get<IHttpResponseBodyFeature>()?.DisableBuffering();
             await using var stream = await upstream.Content.ReadAsStreamAsync(cancellationToken);
             await stream.CopyToAsync(Response.Body, cancellationToken);

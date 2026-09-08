@@ -49,6 +49,11 @@ internal static class Program
                 StartNativePlayback(cancellation => DesktopTrackPlayer.PlayStreamAsync(streamUri, cancellation));
                 return Task.CompletedTask;
             };
+            NativeRadioActions.ListenToStationAsync = async stationId =>
+            {
+                var streamUri = await MusicLibraryApi.CreateLiveStreamUriAsync(stationId);
+                StartNativePlayback(cancellation => DesktopTrackPlayer.PlayStreamAsync(streamUri, cancellation));
+            };
             NativeRadioActions.PlayFileAsync = (content, contentType, fileName) =>
             {
                 StartNativePlayback(cancellation => DesktopTrackPlayer.PlayToCompletionAsync(content, contentType, fileName, cancellation));

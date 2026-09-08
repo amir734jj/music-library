@@ -668,7 +668,7 @@ public sealed partial class MainView : UserControl
             }
             var stations = await MusicLibraryApi.GetStationsAsync(query, cancellationToken);
             if (_libraryMode != LibraryMode.Stations) return;
-            NowPlayingList.ItemsSource = stations.Select(CreateStationRow).ToList();
+            NowPlayingList.ItemsSource = CreateStationGroups(stations);
             NowPlayingStatus.Text = stations.Count switch
             {
                 0 => string.IsNullOrWhiteSpace(query) ? "No stations are available." : "No matching stations found.",
@@ -687,6 +687,28 @@ public sealed partial class MainView : UserControl
         {
             _nowPlayingLoadGate.Release();
         }
+    }
+
+    private IReadOnlyList<Control> CreateStationGroups(IEnumerable<StationSummary> stations)
+    {
+        var controls = new List<Control>();
+        foreach (var group in stations
+                     .GroupBy(station => string.IsNullOrWhiteSpace(station.Genre) ? "Uncategorized" : station.Genre.Trim())
+                     .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            controls.Add(new TextBlock
+            {
+                Text = group.Key,
+                FontSize = 16,
+                FontWeight = Avalonia.Media.FontWeight.SemiBold,
+                Margin = new Avalonia.Thickness(0, controls.Count == 0 ? 0 : 12, 0, 10)
+            });
+            controls.AddRange(group
+                .OrderBy(station => station.Name, StringComparer.OrdinalIgnoreCase)
+                .Select(CreateStationRow));
+        }
+
+        return controls;
     }
 
     private Control CreateStationRow(StationSummary station)
