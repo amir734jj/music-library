@@ -7,7 +7,7 @@ namespace MusicLibrary.Api.Services;
 
 public sealed class EncryptedTrackCacheWorker(
     TrackCaptureQueue queue,
-    TrackCacheStorage storage,
+    ITrackCacheStorage storage,
     IServiceScopeFactory scopeFactory,
     IStreamRipperFactory streamRipperFactory,
     ILogger<EncryptedTrackCacheWorker> logger) : BackgroundService
@@ -17,7 +17,6 @@ public sealed class EncryptedTrackCacheWorker(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        Directory.CreateDirectory(storage.CacheDirectory);
         using (var scope = scopeFactory.CreateScope())
         {
             var config = await scope.ServiceProvider.GetRequiredService<IGlobalConfigService>().GetAsync(stoppingToken);
@@ -105,7 +104,7 @@ public sealed class EncryptedTrackCacheWorker(
             track => track.NormalizedArtist == normalizedArtist
                      && track.NormalizedTitle == normalizedTitle
                      && track.ExpiresAt > DateTimeOffset.UtcNow])).ToList();
-        if (matchingTracks.Any(track => File.Exists(track.FilePath))) return;
+        if (matchingTracks.Any(track => storage.Exists(track.FilePath))) return;
         var missingTrackIds = matchingTracks.Select(track => track.Id).ToArray();
         if (missingTrackIds.Length > 0)
         {
@@ -123,7 +122,7 @@ public sealed class EncryptedTrackCacheWorker(
             return;
         }
         var id = Guid.NewGuid();
-        var path = Path.Combine(storage.CacheDirectory, $"{id:N}.cache");
+        var path = storage.CreateEncryptedPath(id, key);
         var encrypted = TrackCacheCryptography.Encrypt(audio, key);
         var createdAt = DateTimeOffset.UtcNow;
         var track = new CachedTrack

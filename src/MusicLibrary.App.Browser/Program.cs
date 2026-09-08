@@ -20,6 +20,19 @@ internal static class Program
         };
         NativeRadioActions.PlayFileAsync =
             (content, contentType, _) => BrowserAuthenticationSessionStorage.PlayFileAsync(content, contentType);
+        NativeRadioActions.PlayFileToCompletionAsync = async (content, contentType, _, cancellationToken) =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            using var registration = cancellationToken.Register(BrowserAuthenticationSessionStorage.StopPlayback);
+            try
+            {
+                await BrowserAuthenticationSessionStorage.PlayFileToCompletionAsync(content, contentType);
+            }
+            catch (Exception exception) when (cancellationToken.IsCancellationRequested)
+            {
+                throw new OperationCanceledException("Playback stopped.", exception, cancellationToken);
+            }
+        };
         NativeRadioActions.ToggleFilePlaybackAsync = BrowserAuthenticationSessionStorage.ToggleFilePlaybackAsync;
         NativeRadioActions.SaveFileAsync = (content, contentType, fileName) =>
         {

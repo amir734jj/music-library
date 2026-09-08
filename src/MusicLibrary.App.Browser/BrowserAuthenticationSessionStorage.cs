@@ -18,6 +18,12 @@ internal static partial class BrowserAuthenticationSessionStorage
     [JSImport("playFile", ModuleName)]
     internal static partial Task PlayFileAsync(byte[] content, string contentType);
 
+    [JSImport("playFileToCompletion", ModuleName)]
+    internal static partial Task PlayFileToCompletionAsync(byte[] content, string contentType);
+
+    [JSImport("stopPlayback", ModuleName)]
+    internal static partial void StopPlayback();
+
     [JSImport("listenLive", ModuleName)]
     internal static partial Task ListenLiveAsync(string streamUrl);
 

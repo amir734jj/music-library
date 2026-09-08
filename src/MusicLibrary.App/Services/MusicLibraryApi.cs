@@ -123,6 +123,15 @@ public static class MusicLibraryApi
         return GetContent(response);
     }
 
+    public static async Task<NowPlayingSummary?> GetNowPlayingStationAsync(Guid stationId, CancellationToken cancellationToken = default)
+    {
+        if (!IsAuthenticated) throw new InvalidOperationException("An authenticated session is required.");
+        using var response = await Client.GetNowPlayingStationAsync(stationId, _authentication!.AccessToken, cancellationToken);
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound) return null;
+        EnsureSuccess(response);
+        return GetContent(response);
+    }
+
     public static async Task<Uri> CreateLiveStreamUriAsync(Guid stationId, CancellationToken cancellationToken = default)
     {
         if (!IsAuthenticated) throw new InvalidOperationException("An authenticated session is required.");

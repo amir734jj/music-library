@@ -19,7 +19,7 @@ public sealed class AdminController(
     UserManager<ApplicationUser> userManager,
     IGlobalConfigService configService,
     IStationDirectoryImportService importService,
-    TrackCacheStorage trackCacheStorage,
+    ITrackCacheStorage trackCacheStorage,
     StationProbeStatusStore probeStatusStore,
     IEfRepository repository) : MusicLibraryControllerBase
 {

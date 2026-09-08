@@ -5,13 +5,25 @@ using MusicLibrary.Contracts.Responses;
 
 namespace MusicLibrary.Api.Services;
 
-public sealed class TrackCacheStorage(IConfiguration configuration)
+public sealed class TrackCacheStorage(IConfiguration configuration) : ITrackCacheStorage
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
     private string? _activeKeyFingerprint;
 
-    public string CacheDirectory { get; } = configuration["TRENDING_CACHE_DIRECTORY"]
-                                            ?? Path.Combine(Path.GetTempPath(), "music-library-trending-cache");
+    private string CacheDirectory { get; } = configuration["TRENDING_CACHE_DIRECTORY"]
+        ?? Path.Combine(Path.GetTempPath(), "music-library-trending-cache");
+
+    public string CreateEncryptedPath(Guid trackId, byte[] encryptionKey)
+    {
+        var encryptedName = TrackCacheCryptography.Encrypt(trackId.ToByteArray(), encryptionKey);
+        var encodedName = Convert.ToBase64String(encryptedName)
+            .TrimEnd('=')
+            .Replace('+', '-')
+            .Replace('/', '_');
+        return Path.Combine(CacheDirectory, $"enc-{encodedName}.cache");
+    }
+
+    public bool Exists(string path) => File.Exists(path);
 
     public async Task<bool> TrySaveAsync(
         IEfRepository repository,
@@ -258,6 +270,7 @@ public sealed class TrackCacheStorage(IConfiguration configuration)
             if (encryptionKey is not null)
             {
                 await RemoveInvalidAsync(repository, encryptionKey, cancellationToken);
+                await EncryptLegacyFileNamesAsync(repository, encryptionKey, cancellationToken);
             }
             _activeKeyFingerprint = encryptionKey is null
                 ? null
@@ -367,6 +380,35 @@ public sealed class TrackCacheStorage(IConfiguration configuration)
             if (!knownPaths.Contains(Path.GetFullPath(path))) File.Delete(path);
         }
         cancellationToken.ThrowIfCancellationRequested();
+    }
+
+    private async Task EncryptLegacyFileNamesAsync(
+        IEfRepository repository,
+        byte[] encryptionKey,
+        CancellationToken cancellationToken)
+    {
+        var tracks = repository.For<CachedTrack>();
+        var metadata = await tracks.GetAll<CachedTrack>(maxResults: 100000);
+        foreach (var track in metadata)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (Path.GetFileName(track.FilePath).StartsWith("enc-", StringComparison.Ordinal)) continue;
+
+            var encryptedPath = CreateEncryptedPath(track.Id, encryptionKey);
+            try
+            {
+                File.Move(track.FilePath, encryptedPath);
+                await tracks.Update<Guid>(track.Id, candidate => candidate.FilePath = encryptedPath);
+            }
+            catch
+            {
+                if (File.Exists(encryptedPath) && !File.Exists(track.FilePath))
+                {
+                    File.Move(encryptedPath, track.FilePath);
+                }
+                throw;
+            }
+        }
     }
 
     private static async Task RemoveInvalidAsync(

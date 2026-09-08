@@ -1,6 +1,7 @@
 const sessionKey = 'music-library.authentication';
 let playingAudio = null;
 let playingAudioUrl = null;
+let rejectPlaybackCompletion = null;
 
 export function loadAuthenticationSession() {
     return globalThis.localStorage.getItem(sessionKey);
@@ -27,12 +28,7 @@ export function downloadFile(content, contentType, fileName) {
 }
 
 export async function playFile(content, contentType) {
-    if (playingAudio !== null) {
-        playingAudio.pause();
-    }
-    if (playingAudioUrl !== null) {
-        globalThis.URL.revokeObjectURL(playingAudioUrl);
-    }
+    stopPlayback();
 
     playingAudioUrl = globalThis.URL.createObjectURL(new Blob([new Uint8Array(content)], { type: contentType }));
     playingAudio = new Audio(playingAudioUrl);
@@ -46,13 +42,49 @@ export async function playFile(content, contentType) {
     }
 }
 
-export async function listenLive(streamUrl) {
+export function playFileToCompletion(content, contentType) {
+    stopPlayback();
+    playingAudioUrl = globalThis.URL.createObjectURL(new Blob([new Uint8Array(content)], { type: contentType }));
+    playingAudio = new Audio(playingAudioUrl);
+    const audio = playingAudio;
+
+    return new Promise((resolve, reject) => {
+        rejectPlaybackCompletion = reject;
+        audio.addEventListener('ended', () => {
+            if (playingAudio !== audio) return;
+            rejectPlaybackCompletion = null;
+            clearPlayingAudio();
+            resolve();
+        }, { once: true });
+        audio.addEventListener('error', () => {
+            if (playingAudio !== audio) return;
+            rejectPlaybackCompletion = null;
+            clearPlayingAudio();
+            reject(new Error('The cached recording could not be played.'));
+        }, { once: true });
+        audio.play().catch(error => {
+            if (playingAudio !== audio) return;
+            rejectPlaybackCompletion = null;
+            clearPlayingAudio();
+            reject(error);
+        });
+    });
+}
+
+export function stopPlayback() {
+    const reject = rejectPlaybackCompletion;
+    rejectPlaybackCompletion = null;
     if (playingAudio !== null) {
         playingAudio.pause();
     }
-    if (playingAudioUrl !== null) {
-        globalThis.URL.revokeObjectURL(playingAudioUrl);
+    clearPlayingAudio();
+    if (reject !== null) {
+        reject(new DOMException('Playback stopped.', 'AbortError'));
     }
+}
+
+export async function listenLive(streamUrl) {
+    stopPlayback();
 
     playingAudioUrl = null;
     playingAudio = new Audio(streamUrl);

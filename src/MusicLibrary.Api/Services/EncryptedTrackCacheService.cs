@@ -5,7 +5,7 @@ namespace MusicLibrary.Api.Services;
 public sealed class EncryptedTrackCacheService(
     IGlobalConfigService configService,
     IEfRepository repository,
-    TrackCacheStorage storage) : IEncryptedTrackCacheService
+    ITrackCacheStorage storage) : IEncryptedTrackCacheService
 {
     public async Task<CachedTrackDownload?> GetAsync(Guid id, CancellationToken cancellationToken)
     {

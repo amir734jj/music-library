@@ -103,10 +103,12 @@ builder.Services.AddControllers().AddNewtonsoftJson(options =>
 });
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
-// StationDirectoryImportService is registered via AddHttpClient below, so exclude it from scanning.
+// These services have explicit registrations below, so exclude them from scanning.
 builder.Services.Scan(scan => scan
     .FromAssemblyOf<IGlobalConfigService>()
-    .AddClasses(classes => classes.InNamespaces("MusicLibrary.Api.Services").Where(type => type != typeof(StationDirectoryImportService)))
+    .AddClasses(classes => classes.InNamespaces("MusicLibrary.Api.Services").Where(type =>
+        type != typeof(StationDirectoryImportService)
+        && type != typeof(TrackCacheStorage)))
     .AsMatchingInterface()
     .WithScopedLifetime());
 builder.Services.AddStreamRipper();
@@ -114,7 +116,7 @@ builder.Services.AddHttpClient<IStationDirectoryImportService, StationDirectoryI
 builder.Services.AddHttpClient("LiveStreamProxy", client => client.Timeout = Timeout.InfiniteTimeSpan);
 builder.Services.AddSingleton<StationProbeStatusStore>();
 builder.Services.AddSingleton<TrackCaptureQueue>();
-builder.Services.AddSingleton<TrackCacheStorage>();
+builder.Services.AddSingleton<ITrackCacheStorage, TrackCacheStorage>();
 builder.Services.AddSingleton<LiveStreamTicketStore>();
 builder.Services.AddHostedService<StationProbeWorker>();
 builder.Services.AddHostedService<EncryptedTrackCacheWorker>();

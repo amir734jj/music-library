@@ -18,6 +18,7 @@ public sealed class LibraryController(
     IEfRepository repository,
     IGlobalConfigService configService,
     IEncryptedTrackCacheService encryptedTrackCacheService,
+    ITrackCacheStorage trackCacheStorage,
     LiveStreamTicketStore liveStreamTickets,
     IHttpClientFactory httpClientFactory) : MusicLibraryControllerBase
 {
@@ -52,6 +53,23 @@ public sealed class LibraryController(
                     station.StreamUrl),
                 maxResults: 100)
         ];
+    }
+
+    [HttpGet("now-playing/{stationId:guid}")]
+    public async Task<ActionResult<NowPlayingSummary>> NowPlayingStation(Guid stationId)
+    {
+        var station = await repository.For<Station>().Get<Guid>(stationId);
+        if (station?.LastMetadataAt is null) return NotFound();
+
+        return Ok(new NowPlayingSummary(
+            station.Id,
+            station.Name,
+            station.CurrentArtist,
+            station.CurrentTitle,
+            station.CurrentRawMetadata ?? string.Empty,
+            station.LastMetadataAt.Value,
+            station.CurrentConfidence,
+            station.StreamUrl));
     }
 
     [HttpPost("now-playing/{stationId:guid}/stream-ticket")]
@@ -154,7 +172,7 @@ public sealed class LibraryController(
                 maxResults: 10000);
         }
         var cacheByTrack = cachedTracks
-            .Where(track => System.IO.File.Exists(track.FilePath))
+            .Where(track => trackCacheStorage.Exists(track.FilePath))
             .GroupBy(track => (track.NormalizedArtist, track.NormalizedTitle))
             .ToDictionary(group => group.Key, group => group.First());
 

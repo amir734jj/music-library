@@ -477,7 +477,7 @@ public sealed partial class MainView : UserControl
         {
             var listenButton = new Button
             {
-                Content = CreateActionIcon("mdi-play"),
+                Content = CreateActionIcon("mdi-radio-tower"),
                 Width = 36,
                 Height = 32,
                 VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
@@ -539,7 +539,15 @@ public sealed partial class MainView : UserControl
             {
                 throw new InvalidOperationException("Live listening is not available on this platform.");
             }
-            NowPlayingStatus.Text = $"Listening live to {stationName}.";
+            var current = await MusicLibraryApi.GetNowPlayingStationAsync(stationId);
+            var currentTrack = current is null
+                ? null
+                : string.IsNullOrWhiteSpace(current.Artist)
+                    ? current.Title ?? current.RawMetadata
+                    : $"{current.Artist} - {current.Title ?? current.RawMetadata}";
+            NowPlayingStatus.Text = string.IsNullOrWhiteSpace(currentTrack)
+                ? $"Listening live to {stationName}."
+                : $"Listening live to {stationName}: {currentTrack}";
         }
         catch (Exception exception)
         {
