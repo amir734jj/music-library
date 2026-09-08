@@ -207,7 +207,12 @@ public sealed class MainActivity : AvaloniaMainActivity
     private static global::Android.Media.MediaPlayer CreateAudioPlayer()
     {
         var player = new global::Android.Media.MediaPlayer();
-        player.SetAudioStreamType(global::Android.Media.Stream.Music);
+        using var builder = new global::Android.Media.AudioAttributes.Builder();
+        using var audioAttributes = builder
+            .SetUsage(global::Android.Media.AudioUsageKind.Media)
+            .SetContentType(global::Android.Media.AudioContentType.Music)
+            .Build();
+        player.SetAudioAttributes(audioAttributes);
         return player;
     }
 
