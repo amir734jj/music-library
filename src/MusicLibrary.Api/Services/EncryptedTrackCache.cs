@@ -136,6 +136,7 @@ public sealed class TrackCacheStorage(IConfiguration configuration)
         {
             Directory.CreateDirectory(CacheDirectory);
             await RemoveExpiredAsync(repository, cancellationToken);
+            await ReconcileAsync(repository, cancellationToken);
             await MakeSpaceAsync(repository, maximumCacheBytes, 0, cancellationToken);
         }
         finally
@@ -200,15 +201,46 @@ public sealed class TrackCacheStorage(IConfiguration configuration)
 
     private static async Task RemoveExpiredAsync(IEfRepository repository, CancellationToken cancellationToken)
     {
-        var now = DateTimeOffset.UtcNow;
         var tracks = repository.For<CachedTrack>();
-        var expired = await tracks.GetAll<CachedTrack>(filterExprs: [track => track.ExpiresAt <= now], maxResults: 1000);
-        foreach (var track in expired)
+        while (true)
         {
-            File.Delete(track.FilePath);
+            var now = DateTimeOffset.UtcNow;
+            var expired = (await tracks.GetAll<CachedTrack>(
+                filterExprs: [track => track.ExpiresAt <= now],
+                maxResults: 1000)).ToList();
+            if (expired.Count == 0) return;
+
+            foreach (var track in expired)
+            {
+                File.Delete(track.FilePath);
+            }
+            var expiredIds = expired.Select(track => track.Id).ToArray();
+            await tracks.Delete([track => expiredIds.Contains(track.Id)]);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (expired.Count < 1000) return;
         }
-        var expiredIds = expired.Select(track => track.Id).ToArray();
-        if (expiredIds.Length > 0) await tracks.Delete([track => expiredIds.Contains(track.Id)]);
+    }
+
+    private async Task ReconcileAsync(IEfRepository repository, CancellationToken cancellationToken)
+    {
+        var tracks = repository.For<CachedTrack>();
+        var metadata = (await tracks.GetAll<CachedTrack>(maxResults: 100000)).ToList();
+        var missingIds = metadata.Where(track => !File.Exists(track.FilePath)).Select(track => track.Id).ToArray();
+        var missingIdSet = missingIds.ToHashSet();
+        if (missingIds.Length > 0)
+        {
+            await tracks.Delete([track => missingIds.Contains(track.Id)]);
+        }
+
+        var comparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+        var knownPaths = metadata
+            .Where(track => !missingIdSet.Contains(track.Id))
+            .Select(track => Path.GetFullPath(track.FilePath))
+            .ToHashSet(comparer);
+        foreach (var path in Directory.EnumerateFiles(CacheDirectory, "*.cache"))
+        {
+            if (!knownPaths.Contains(Path.GetFullPath(path))) File.Delete(path);
+        }
         cancellationToken.ThrowIfCancellationRequested();
     }
 }
@@ -221,6 +253,7 @@ public sealed class EncryptedTrackCacheWorker(
     ILogger<EncryptedTrackCacheWorker> logger) : BackgroundService
 {
     private const int MaximumCaptureBytes = 32 * 1024 * 1024;
+    private static readonly TimeSpan MaintenanceInterval = TimeSpan.FromMinutes(15);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -234,6 +267,11 @@ public sealed class EncryptedTrackCacheWorker(
                 config.TrendingCacheMaxSizeMegabytes * 1024L * 1024L,
                 stoppingToken);
         }
+        await Task.WhenAll(ProcessQueueAsync(stoppingToken), RunMaintenanceAsync(stoppingToken));
+    }
+
+    private async Task ProcessQueueAsync(CancellationToken stoppingToken)
+    {
         await Parallel.ForEachAsync(
             queue.ReadAllAsync(stoppingToken),
             new ParallelOptions { MaxDegreeOfParallelism = 3, CancellationToken = stoppingToken },
@@ -255,6 +293,32 @@ public sealed class EncryptedTrackCacheWorker(
                     queue.Complete(request);
                 }
             });
+    }
+
+    private async Task RunMaintenanceAsync(CancellationToken stoppingToken)
+    {
+        using var timer = new PeriodicTimer(MaintenanceInterval);
+        while (await timer.WaitForNextTickAsync(stoppingToken))
+        {
+            try
+            {
+                using var scope = scopeFactory.CreateScope();
+                var config = await scope.ServiceProvider.GetRequiredService<IGlobalConfigService>().GetAsync(stoppingToken);
+                var repository = scope.ServiceProvider.GetRequiredService<IEfRepository>();
+                await storage.EnforceLimitAsync(
+                    repository,
+                    config.TrendingCacheMaxSizeMegabytes * 1024L * 1024L,
+                    stoppingToken);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception exception)
+            {
+                logger.LogWarning(exception, "Could not complete trending cache maintenance.");
+            }
+        }
     }
 
     private async Task CaptureAsync(TrackCaptureRequest request, CancellationToken cancellationToken)

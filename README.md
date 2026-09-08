@@ -73,6 +73,8 @@ Supply database and JWT configuration with environment variables in every enviro
 
 The container stores encrypted Trending recordings under `/data/trending-cache`. In Coolify, add persistent storage with destination `/data` so recordings survive deployments. Database rows cannot restore recordings lost before this mount is configured; those tracks become available again after a station reports the song and a new boundary-complete capture succeeds.
 
+Each cached song expires according to `TRENDING_CACHE_RETENTION_HOURS` (24 hours by default). The API removes expired songs and reconciles orphaned files every 15 minutes, as well as during startup and configuration changes. Every write enforces `TRENDING_CACHE_MAX_SIZE_MEGABYTES`; the oldest encrypted files are removed before a write could exceed that hard limit.
+
 ## Native API endpoint
 
 The desktop and Android hosts use `https://music-library.coolify.hesamian.com/` as their API base URL. On startup, each native app requests `GET /api/health` and displays whether the deployed API is available. Subsequent authenticated API calls use the shared `MusicLibraryApi` client.
