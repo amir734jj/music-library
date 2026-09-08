@@ -9,7 +9,6 @@ using MusicLibrary.Api.Workers;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.AspNetCore.Http.Extensions;
 using Newtonsoft.Json.Converters;
@@ -19,7 +18,6 @@ using FluentMigrator.Runner;
 using MusicLibrary.Contracts.Constants;
 using Serilog;
 using StreamRipper.Extensions;
-using StreamRipper.Interfaces;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Host.UseSerilog((context, services, configuration) => configuration
@@ -114,7 +112,6 @@ builder.Services.Scan(scan => scan
     .AsMatchingInterface()
     .WithScopedLifetime());
 builder.Services.AddStreamRipper();
-builder.Services.AddSingleton<ILogger<IStreamRipper>>(NullLogger<IStreamRipper>.Instance);
 builder.Services.AddHttpClient<IStationDirectoryImportService, StationDirectoryImportService>(client => client.Timeout = TimeSpan.FromMinutes(5));
 builder.Services.AddHttpClient("LiveStreamProxy", client => client.Timeout = Timeout.InfiniteTimeSpan);
 builder.Services.AddSingleton<StationProbeStatusStore>();

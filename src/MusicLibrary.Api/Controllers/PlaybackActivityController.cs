@@ -39,9 +39,8 @@ public sealed class PlaybackActivityController(IEfRepository repository) : Music
     {
         var description = request.PlaybackDescription.Trim();
         var activities = repository.For<UserPlaybackActivity>();
-        var existing = await activities.Get<Guid>(CurrentUserId);
         var now = DateTimeOffset.UtcNow;
-        if (existing is null)
+        if (!await activities.Any([activity => activity.UserId == CurrentUserId]))
         {
             await activities.Save(new UserPlaybackActivity
             {
@@ -54,7 +53,7 @@ public sealed class PlaybackActivityController(IEfRepository repository) : Music
         }
         else
         {
-            await activities.Update<Guid>(CurrentUserId, activity =>
+            await activities.Update([activity => activity.UserId == CurrentUserId], activity =>
             {
                 var playbackChanged = activity.IsLiveStation != request.IsLiveStation
                     || activity.PlaybackDescription != description;
