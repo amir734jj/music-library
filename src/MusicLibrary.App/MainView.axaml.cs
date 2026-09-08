@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Media;
 using MusicLibrary.Contracts;
 using Projektanker.Icons.Avalonia;
 
@@ -15,6 +16,7 @@ public sealed partial class MainView : UserControl
     }
 
     private const int ProbePageSize = 100;
+    private static readonly Dictionary<string, Geometry> ActionIconGeometries = [];
     private readonly SemaphoreSlim _nowPlayingLoadGate = new(1, 1);
     private readonly SemaphoreSlim _probeStatusLoadGate = new(1, 1);
     private readonly HashSet<string> _subscribedArtists = new(StringComparer.OrdinalIgnoreCase);
@@ -809,11 +811,21 @@ public sealed partial class MainView : UserControl
         ToolTip.SetTip(button, isPlaying ? "Pause cached recording" : "Play cached recording");
     }
 
-    private static Icon CreateActionIcon(string value) => new()
+    private static PathIcon CreateActionIcon(string value)
     {
-        Value = value,
-        FontSize = 16
-    };
+        if (!ActionIconGeometries.TryGetValue(value, out var geometry))
+        {
+            geometry = StreamGeometry.Parse(IconProvider.Current.GetIcon(value).Path.ToString());
+            ActionIconGeometries.Add(value, geometry);
+        }
+
+        return new PathIcon
+        {
+            Data = geometry,
+            Width = 16,
+            Height = 16
+        };
+    }
 
     private async Task DownloadTrendingTrackAsync(Guid cachedTrackId, Button downloadButton)
     {
