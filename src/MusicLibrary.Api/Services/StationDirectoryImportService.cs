@@ -16,6 +16,12 @@ public sealed class StationDirectoryImportService(
     IGlobalConfigService configService,
     IEfRepository repository) : IStationDirectoryImportService
 {
+    private static readonly HashSet<string> NonMusicGenres = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Public Radio",
+        "Talk"
+    };
+
     public async Task<DirectoryImportSummary> ImportAsync(CancellationToken cancellationToken)
     {
         var config = await configService.GetAsync(cancellationToken);
@@ -41,6 +47,12 @@ public sealed class StationDirectoryImportService(
 
         foreach (var (genre, list) in catalog)
         {
+            if (NonMusicGenres.Contains(genre.Trim()))
+            {
+                rejected += list.Count;
+                continue;
+            }
+
             foreach (var station in list)
             {
                 if (station.ID <= 0 || string.IsNullOrWhiteSpace(station.Name) || !IsSupportedStreamUrl(station.Url))
