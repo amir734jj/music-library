@@ -6,11 +6,6 @@ using Microsoft.IdentityModel.Tokens;
 
 namespace MusicLibrary.Api.Services;
 
-public interface IJwtTokenService
-{
-    (string Token, DateTimeOffset ExpiresAt) CreateToken(ApplicationUser user, IReadOnlyCollection<string> roles);
-}
-
 public sealed class JwtTokenService(IConfiguration configuration) : IJwtTokenService
 {
     private readonly string _key = configuration["Jwt:Key"] ?? throw new InvalidOperationException("Jwt:Key is required.");

@@ -1,17 +1,11 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using MusicLibrary.Api.Data;
-using MusicLibrary.Contracts;
 using EfCoreRepository.Interfaces;
+using MusicLibrary.Contracts.Attributes;
+using MusicLibrary.Contracts.Responses;
 
 namespace MusicLibrary.Api.Services;
-
-public interface IGlobalConfigService
-{
-    Task<GlobalConfigModel> GetAsync(CancellationToken cancellationToken);
-    Task EnsureTrendingCacheEncryptionKeyAsync(CancellationToken cancellationToken);
-    Task SaveAsync(IReadOnlyDictionary<string, string> values, Guid userId, CancellationToken cancellationToken);
-}
 
 public sealed class GlobalConfigService(IEfRepository repository) : IGlobalConfigService
 {

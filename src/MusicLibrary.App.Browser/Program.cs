@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Browser;
 using System.Runtime.InteropServices.JavaScript;
+using MusicLibrary.App.Services;
 
 namespace MusicLibrary.App.Browser;
 

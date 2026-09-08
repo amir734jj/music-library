@@ -1,12 +1,14 @@
 using MusicLibrary.Api.Data;
 using MusicLibrary.Api.Services;
-using MusicLibrary.Contracts;
 using EfCoreRepository.Interfaces;
 using EfCoreRepository.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using MusicLibrary.Contracts.Constants;
+using MusicLibrary.Contracts.Requests;
+using MusicLibrary.Contracts.Responses;
 
 namespace MusicLibrary.Api.Controllers;
 
@@ -25,7 +27,8 @@ public sealed class AdminController(
     public async Task<ActionResult<IReadOnlyCollection<UserSummary>>> GetUsers(CancellationToken cancellationToken)
     {
         var accounts = await userManager.Users.AsNoTracking().OrderBy(user => user.Email).ToListAsync(cancellationToken);
-        var summaries = await Task.WhenAll(accounts.Select(async user => new UserSummary(user.Id, user.Email!, user.DisplayName, (await userManager.GetRolesAsync(user)).ToList(), user.IsActive)));
+        var summaries = await Task.WhenAll(accounts.Select(async user => new UserSummary(user.Id, user.Email!, user.DisplayName,
+            [.. await userManager.GetRolesAsync(user)], user.IsActive)));
         return Ok(summaries);
     }
 
@@ -52,8 +55,9 @@ public sealed class AdminController(
     public async Task<IActionResult> SaveConfig(UpdateGlobalConfigRequest request, CancellationToken cancellationToken)
     {
         const string cacheKeyName = "TRENDING_CACHE_ENCRYPTION_KEY";
+        byte[] newKey = [];
         if (request.Values.TryGetValue(cacheKeyName, out var cacheKey)
-            && !TrackCacheCryptography.TryGetKey(cacheKey, out var newKey))
+            && !TrackCacheCryptography.TryGetKey(cacheKey, out newKey))
         {
             ModelState.AddModelError(cacheKeyName, "The cache encryption key must be a Base64-encoded 32-byte key.");
             return ValidationProblem(ModelState);

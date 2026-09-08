@@ -4,7 +4,7 @@ namespace MusicLibrary.Api.Services;
 
 internal static class TrackCacheCryptography
 {
-    private static readonly byte[] Header = "MLTC1"u8.ToArray();
+    private static readonly byte[] Header = [.. "MLTC1"u8];
 
     public static bool TryGetKey(string value, out byte[] key)
     {

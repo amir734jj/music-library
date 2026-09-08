@@ -1,10 +1,12 @@
 using MusicLibrary.Api.Data;
 using MusicLibrary.Api.Services;
-using MusicLibrary.Contracts;
 using EfCoreRepository.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using MusicLibrary.Contracts.Constants;
+using MusicLibrary.Contracts.Requests;
+using MusicLibrary.Contracts.Responses;
 
 namespace MusicLibrary.Api.Controllers;
 
@@ -22,7 +24,7 @@ public sealed class AuthController(UserManager<ApplicationUser> userManager, IJw
         if (user is null) return Unauthorized();
 
         var roles = await userManager.GetRolesAsync(user);
-        return Ok(new UserSummary(user.Id, user.Email!, user.DisplayName, roles.ToList(), user.IsActive));
+        return Ok(new UserSummary(user.Id, user.Email!, user.DisplayName, [.. roles], user.IsActive));
     }
 
     [HttpPost("register")]
@@ -77,7 +79,8 @@ public sealed class AuthController(UserManager<ApplicationUser> userManager, IJw
         user.LastLoginAt = DateTimeOffset.UtcNow;
         await userManager.UpdateAsync(user);
         var roles = await userManager.GetRolesAsync(user);
-        var (token, expiresAt) = tokenService.CreateToken(user, roles.ToList());
-        return Ok(new LoginAuthenticationResult(token, expiresAt, new UserSummary(user.Id, user.Email!, user.DisplayName, roles.ToList(), user.IsActive)));
+        var (token, expiresAt) = tokenService.CreateToken(user, [.. roles]);
+        return Ok(new LoginAuthenticationResult(token, expiresAt, new UserSummary(user.Id, user.Email!, user.DisplayName,
+            [.. roles], user.IsActive)));
     }
 }

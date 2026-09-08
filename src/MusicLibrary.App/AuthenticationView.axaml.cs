@@ -1,6 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
-using MusicLibrary.Contracts;
+using MusicLibrary.App.Services;
+using MusicLibrary.Contracts.Requests;
 
 namespace MusicLibrary.App;
 
@@ -21,7 +22,12 @@ public sealed partial class AuthenticationView : UserControl
         SetAuthenticationMode(false);
     }
 
-    private async void AuthenticationSubmit_Click(object? sender, RoutedEventArgs eventArgs)
+    private void AuthenticationSubmit_Click(object? sender, RoutedEventArgs eventArgs)
+    {
+        _ = AuthenticationSubmitAsync();
+    }
+
+    private async Task AuthenticationSubmitAsync()
     {
         AuthenticationSubmitButton.IsEnabled = false;
         AuthenticationModeButton.IsEnabled = false;
@@ -82,9 +88,4 @@ public sealed partial class AuthenticationView : UserControl
             AuthPasswordConfirmationInput.Text = string.Empty;
         }
     }
-}
-
-public sealed class AuthenticatedEventArgs(UserSummary user) : EventArgs
-{
-    public UserSummary User { get; } = user;
 }

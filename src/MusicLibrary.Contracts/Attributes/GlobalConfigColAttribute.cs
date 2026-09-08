@@ -1,4 +1,4 @@
-namespace MusicLibrary.Contracts;
+namespace MusicLibrary.Contracts.Attributes;
 
 [AttributeUsage(AttributeTargets.Property)]
 public sealed class GlobalConfigColAttribute : Attribute

@@ -6,7 +6,6 @@ using MusicLibrary.Api.Infrastructure;
 using MusicLibrary.Api.Migrations;
 using MusicLibrary.Api.Services;
 using MusicLibrary.Api.Workers;
-using MusicLibrary.Contracts;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -16,6 +15,7 @@ using Newtonsoft.Json.Converters;
 using Newtonsoft.Json.Serialization;
 using EfCoreRepository.Extensions;
 using FluentMigrator.Runner;
+using MusicLibrary.Contracts.Constants;
 using Serilog;
 using StreamRipper.Extensions;
 

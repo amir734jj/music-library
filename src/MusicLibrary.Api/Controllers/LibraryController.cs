@@ -3,10 +3,11 @@ using EfCoreRepository.Interfaces;
 using EfCoreRepository.Models;
 using MusicLibrary.Api.Data;
 using MusicLibrary.Api.Services;
-using MusicLibrary.Contracts;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
+using MusicLibrary.Contracts.Requests;
+using MusicLibrary.Contracts.Responses;
 
 namespace MusicLibrary.Api.Controllers;
 
@@ -35,19 +36,22 @@ public sealed class LibraryController(
                     station => station.Name.ToLower())
             };
 
-        return (await repository.For<Station>().GetAll(
-            filterExprs: filters,
-            orderBy: Ordering<Station>.Desc(station => station.LastMetadataAt),
-            project: station => new NowPlayingSummary(
-                station.Id,
-                station.Name,
-                station.CurrentArtist,
-                station.CurrentTitle,
-                station.CurrentRawMetadata!,
-                station.LastMetadataAt!.Value,
-                station.CurrentConfidence,
-                station.StreamUrl),
-            maxResults: 100)).ToList();
+        return
+        [
+            .. await repository.For<Station>().GetAll(
+                filterExprs: filters,
+                orderBy: Ordering<Station>.Desc(station => station.LastMetadataAt),
+                project: station => new NowPlayingSummary(
+                    station.Id,
+                    station.Name,
+                    station.CurrentArtist,
+                    station.CurrentTitle,
+                    station.CurrentRawMetadata!,
+                    station.LastMetadataAt!.Value,
+                    station.CurrentConfidence,
+                    station.StreamUrl),
+                maxResults: 100)
+        ];
     }
 
     [HttpPost("now-playing/{stationId:guid}/stream-ticket")]
@@ -154,34 +158,36 @@ public sealed class LibraryController(
             .GroupBy(track => (track.NormalizedArtist, track.NormalizedTitle))
             .ToDictionary(group => group.Key, group => group.First());
 
-        return observations
-            .Where(play => !string.IsNullOrWhiteSpace(play.Artist)
-                && TrackMetadataValidation.IsMeaningful(play.Artist, play.Title))
-            .GroupBy(play => new
-            {
-                Artist = play.Artist!.Trim().ToUpperInvariant(),
-                Title = play.Title?.Trim().ToUpperInvariant()
-            })
-            .Select(group =>
-            {
-                var latest = group.MaxBy(play => play.ObservedAt)!;
-                cacheByTrack.TryGetValue((group.Key.Artist, group.Key.Title ?? string.Empty), out var cachedTrack);
-                return new TrendingSummary(
-                    latest.Artist!.Trim(),
-                    latest.Title?.Trim(),
-                    group.Count(),
-                    group.Select(play => play.StationId).Distinct().Count(),
-                    latest.ObservedAt,
-                    cachedTrack?.BitrateKbps,
-                    cachedTrack?.Id,
-                    cachedTrack?.ExpiresAt);
-            })
-            .Where(trend => trend.CachedTrackId is not null)
-            .OrderByDescending(trend => trend.ObservationCount)
-            .ThenByDescending(trend => trend.StationCount)
-            .ThenByDescending(trend => trend.LastObservedAt)
-            .Take(100)
-            .ToList();
+        return
+        [
+            .. observations
+                .Where(play => !string.IsNullOrWhiteSpace(play.Artist)
+                               && TrackMetadataValidation.IsMeaningful(play.Artist, play.Title))
+                .GroupBy(play => new
+                {
+                    Artist = play.Artist!.Trim().ToUpperInvariant(),
+                    Title = play.Title?.Trim().ToUpperInvariant()
+                })
+                .Select(group =>
+                {
+                    var latest = group.MaxBy(play => play.ObservedAt)!;
+                    cacheByTrack.TryGetValue((group.Key.Artist, group.Key.Title ?? string.Empty), out var cachedTrack);
+                    return new TrendingSummary(
+                        latest.Artist!.Trim(),
+                        latest.Title?.Trim(),
+                        group.Count(),
+                        group.Select(play => play.StationId).Distinct().Count(),
+                        latest.ObservedAt,
+                        cachedTrack?.BitrateKbps,
+                        cachedTrack?.Id,
+                        cachedTrack?.ExpiresAt);
+                })
+                .Where(trend => trend.CachedTrackId is not null)
+                .OrderByDescending(trend => trend.ObservationCount)
+                .ThenByDescending(trend => trend.StationCount)
+                .ThenByDescending(trend => trend.LastObservedAt)
+                .Take(100)
+        ];
     }
 
     [HttpGet("trending/{cachedTrackId:guid}/download")]

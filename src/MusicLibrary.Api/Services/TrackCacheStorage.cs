@@ -1,90 +1,9 @@
 using System.Security.Cryptography;
-using System.Collections.Concurrent;
-using System.Threading.Channels;
 using EfCoreRepository.Interfaces;
 using MusicLibrary.Api.Data;
-using MusicLibrary.Contracts;
-using StreamRipper.Interfaces;
-using StreamRipper.Models;
+using MusicLibrary.Contracts.Responses;
 
 namespace MusicLibrary.Api.Services;
-
-public sealed record TrackCaptureRequest(
-    Guid PlayObservationId,
-    Uri StreamUri,
-    string Artist,
-    string? Title);
-
-public sealed class TrackCaptureQueue
-{
-    private readonly ConcurrentDictionary<string, byte> _pendingTracks = new(StringComparer.Ordinal);
-    private readonly Channel<TrackCaptureRequest> _channel = Channel.CreateBounded<TrackCaptureRequest>(
-        new BoundedChannelOptions(100)
-        {
-            FullMode = BoundedChannelFullMode.Wait,
-            SingleReader = true,
-            SingleWriter = false
-        });
-
-    public bool TryQueue(TrackCaptureRequest request)
-    {
-        var key = GetTrackKey(request);
-        if (!_pendingTracks.TryAdd(key, 0)) return false;
-        if (_channel.Writer.TryWrite(request)) return true;
-        _pendingTracks.TryRemove(key, out _);
-        return false;
-    }
-
-    public IAsyncEnumerable<TrackCaptureRequest> ReadAllAsync(CancellationToken cancellationToken) =>
-        _channel.Reader.ReadAllAsync(cancellationToken);
-
-    public void Complete(TrackCaptureRequest request) => _pendingTracks.TryRemove(GetTrackKey(request), out _);
-
-    private static string GetTrackKey(TrackCaptureRequest request) =>
-        $"{request.Artist.Trim().ToUpperInvariant()}\u001f{request.Title?.Trim().ToUpperInvariant()}";
-}
-
-public sealed record CachedTrackDownload(byte[] Content, string ContentType, string FileName);
-public sealed record CachedTrackRead(CachedTrack Track, byte[] Content, string ContentType);
-
-public interface IEncryptedTrackCacheService
-{
-    Task<CachedTrackDownload?> GetAsync(Guid id, CancellationToken cancellationToken);
-}
-
-public sealed class EncryptedTrackCacheService(
-    IGlobalConfigService configService,
-    IEfRepository repository,
-    TrackCacheStorage storage) : IEncryptedTrackCacheService
-{
-    public async Task<CachedTrackDownload?> GetAsync(Guid id, CancellationToken cancellationToken)
-    {
-        var config = await configService.GetAsync(cancellationToken);
-        if (!TrackCacheCryptography.TryGetKey(config.TrendingCacheEncryptionKey, out var key)) return null;
-        var cached = await storage.TryReadAsync(repository, id, key, cancellationToken);
-        if (cached is null) return null;
-
-        var name = string.IsNullOrWhiteSpace(cached.Track.Title)
-            ? cached.Track.Artist
-            : $"{cached.Track.Artist} - {cached.Track.Title}";
-        return new CachedTrackDownload(cached.Content, cached.ContentType, $"{SanitizeFileName(name)}{GetExtension(cached.ContentType)}");
-    }
-
-    private static string SanitizeFileName(string value)
-    {
-        var invalid = Path.GetInvalidFileNameChars().ToHashSet();
-        var sanitized = new string(value.Select(character => invalid.Contains(character) || char.IsControl(character) ? '_' : character).ToArray()).Trim();
-        return string.IsNullOrWhiteSpace(sanitized) ? "radio-track" : sanitized;
-    }
-
-    private static string GetExtension(string contentType) => contentType.ToLowerInvariant() switch
-    {
-        "audio/aac" or "audio/aacp" => ".aac",
-        "audio/flac" => ".flac",
-        "audio/ogg" => ".ogg",
-        _ => ".mp3"
-    };
-}
 
 public sealed class TrackCacheStorage(IConfiguration configuration)
 {
@@ -92,7 +11,7 @@ public sealed class TrackCacheStorage(IConfiguration configuration)
     private string? _activeKeyFingerprint;
 
     public string CacheDirectory { get; } = configuration["TRENDING_CACHE_DIRECTORY"]
-        ?? Path.Combine(Path.GetTempPath(), "music-library-trending-cache");
+                                            ?? Path.Combine(Path.GetTempPath(), "music-library-trending-cache");
 
     public async Task<bool> TrySaveAsync(
         IEfRepository repository,
@@ -223,7 +142,7 @@ public sealed class TrackCacheStorage(IConfiguration configuration)
         CachedTrack[] metadata = [];
         try
         {
-            metadata = (await tracks.GetAll<CachedTrack>(maxResults: 100000)).ToArray();
+            metadata = [.. await tracks.GetAll<CachedTrack>(maxResults: 100000)];
             foreach (var track in metadata)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -463,7 +382,7 @@ public sealed class TrackCacheStorage(IConfiguration configuration)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var isValid = track.KeyFingerprint == fingerprint
-                && TrackMetadataValidation.IsMeaningful(track.Artist, track.Title);
+                          && TrackMetadataValidation.IsMeaningful(track.Artist, track.Title);
             try
             {
                 if (isValid)
@@ -498,225 +417,6 @@ public sealed class TrackCacheStorage(IConfiguration configuration)
         if (invalidIds.Count > 0)
         {
             await tracks.Delete([track => invalidIds.Contains(track.Id)]);
-        }
-    }
-}
-
-public sealed class EncryptedTrackCacheWorker(
-    TrackCaptureQueue queue,
-    TrackCacheStorage storage,
-    IServiceScopeFactory scopeFactory,
-    IStreamRipperFactory streamRipperFactory,
-    ILogger<EncryptedTrackCacheWorker> logger) : BackgroundService
-{
-    private const int MaximumCaptureBytes = 32 * 1024 * 1024;
-    private static readonly TimeSpan MaintenanceInterval = TimeSpan.FromMinutes(15);
-
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        Directory.CreateDirectory(storage.CacheDirectory);
-        using (var scope = scopeFactory.CreateScope())
-        {
-            var config = await scope.ServiceProvider.GetRequiredService<IGlobalConfigService>().GetAsync(stoppingToken);
-            var repository = scope.ServiceProvider.GetRequiredService<IEfRepository>();
-            var key = TrackCacheCryptography.TryGetKey(config.TrendingCacheEncryptionKey, out var encryptionKey)
-                ? encryptionKey
-                : null;
-            await storage.EnforceLimitAsync(
-                repository,
-                key,
-                config.TrendingCacheMaxSizeMegabytes * 1024L * 1024L,
-                stoppingToken);
-        }
-        await Task.WhenAll(ProcessQueueAsync(stoppingToken), RunMaintenanceAsync(stoppingToken));
-    }
-
-    private async Task ProcessQueueAsync(CancellationToken stoppingToken)
-    {
-        await Parallel.ForEachAsync(
-            queue.ReadAllAsync(stoppingToken),
-            new ParallelOptions { MaxDegreeOfParallelism = 3, CancellationToken = stoppingToken },
-            async (request, cancellationToken) =>
-            {
-                try
-                {
-                    await CaptureAsync(request, cancellationToken);
-                }
-                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-                {
-                }
-                catch (Exception exception)
-                {
-                    logger.LogWarning(exception, "Could not cache track {Artist} - {Title}.", request.Artist, request.Title);
-                }
-                finally
-                {
-                    queue.Complete(request);
-                }
-            });
-    }
-
-    private async Task RunMaintenanceAsync(CancellationToken stoppingToken)
-    {
-        using var timer = new PeriodicTimer(MaintenanceInterval);
-        while (await timer.WaitForNextTickAsync(stoppingToken))
-        {
-            try
-            {
-                using var scope = scopeFactory.CreateScope();
-                var config = await scope.ServiceProvider.GetRequiredService<IGlobalConfigService>().GetAsync(stoppingToken);
-                var repository = scope.ServiceProvider.GetRequiredService<IEfRepository>();
-                var key = TrackCacheCryptography.TryGetKey(config.TrendingCacheEncryptionKey, out var encryptionKey)
-                    ? encryptionKey
-                    : null;
-                await storage.EnforceLimitAsync(
-                    repository,
-                    key,
-                    config.TrendingCacheMaxSizeMegabytes * 1024L * 1024L,
-                    stoppingToken);
-            }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-            {
-                return;
-            }
-            catch (Exception exception)
-            {
-                logger.LogWarning(exception, "Could not complete trending cache maintenance.");
-            }
-        }
-    }
-
-    private async Task CaptureAsync(TrackCaptureRequest request, CancellationToken cancellationToken)
-    {
-        if (!TrackMetadataValidation.IsMeaningful(request.Artist, request.Title)) return;
-
-        using var scope = scopeFactory.CreateScope();
-        var config = await scope.ServiceProvider.GetRequiredService<IGlobalConfigService>().GetAsync(cancellationToken);
-        if (!TrackCacheCryptography.TryGetKey(config.TrendingCacheEncryptionKey, out var key)) return;
-
-        var repository = scope.ServiceProvider.GetRequiredService<IEfRepository>();
-        var normalizedArtist = request.Artist.Trim().ToUpperInvariant();
-        var normalizedTitle = request.Title?.Trim().ToUpperInvariant() ?? string.Empty;
-        var cachedTracks = repository.For<CachedTrack>();
-        var matchingTracks = (await cachedTracks.GetAll<CachedTrack>(filterExprs: [
-            track => track.NormalizedArtist == normalizedArtist
-                && track.NormalizedTitle == normalizedTitle
-                && track.ExpiresAt > DateTimeOffset.UtcNow])).ToList();
-        if (matchingTracks.Any(track => File.Exists(track.FilePath))) return;
-        var missingTrackIds = matchingTracks.Select(track => track.Id).ToArray();
-        if (missingTrackIds.Length > 0)
-        {
-            await cachedTracks.Delete([track => missingTrackIds.Contains(track.Id)]);
-        }
-
-        var audio = await CaptureSongAsync(
-            request,
-            TimeSpan.FromSeconds(config.TrendingCacheCaptureTimeoutSeconds),
-            cancellationToken);
-        if (audio is null) return;
-        if (!TrackAudioValidation.TryAnalyze(audio, out var audioInfo))
-        {
-            logger.LogWarning("Discarding invalid capture for {Artist} - {Title}.", request.Artist, request.Title);
-            return;
-        }
-        var id = Guid.NewGuid();
-        var path = Path.Combine(storage.CacheDirectory, $"{id:N}.cache");
-        var encrypted = TrackCacheCryptography.Encrypt(audio, key);
-        var createdAt = DateTimeOffset.UtcNow;
-        var track = new CachedTrack
-        {
-            Id = id,
-            PlayObservationId = request.PlayObservationId,
-            Artist = request.Artist.Trim(),
-            Title = request.Title?.Trim(),
-            NormalizedArtist = normalizedArtist,
-            NormalizedTitle = normalizedTitle,
-            FilePath = path,
-            ContentType = audioInfo.ContentType,
-            PlaintextLength = audio.Length,
-            BitrateKbps = audioInfo.BitrateKbps,
-            KeyFingerprint = TrackCacheCryptography.GetFingerprint(key),
-            CreatedAt = createdAt,
-            ExpiresAt = createdAt.AddHours(config.TrendingCacheRetentionHours)
-        };
-        await storage.TrySaveAsync(
-            repository,
-            track,
-            encrypted,
-            config.TrendingCacheMaxSizeMegabytes * 1024L * 1024L,
-            cancellationToken);
-    }
-
-    private async Task<byte[]?> CaptureSongAsync(
-        TrackCaptureRequest request,
-        TimeSpan timeout,
-        CancellationToken cancellationToken)
-    {
-        using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeoutSource.CancelAfter(timeout);
-        var completion = new TaskCompletionSource<byte[]?>(TaskCreationOptions.RunContinuationsAsynchronously);
-        using var ripper = streamRipperFactory.New(new StreamRipperOptions
-        {
-            Url = request.StreamUri,
-            MaxBufferSize = MaximumCaptureBytes,
-            MetadataOnly = false
-        });
-        ripper.SongChangedEventHandlers += (_, eventArgs) =>
-        {
-            var metadata = eventArgs.SongInfo.SongMetadata;
-            if (Matches(metadata.Artist, metadata.Title, request))
-            {
-                var content = eventArgs.SongInfo.Stream.ToArray();
-                completion.TrySetResult(content.Length is > 0 and <= MaximumCaptureBytes ? content : null);
-            }
-            eventArgs.SongInfo.Dispose();
-        };
-        ripper.StreamFailedHandlers += (_, _) => completion.TrySetResult(null);
-        ripper.StreamEndedEventHandlers += (_, _) => completion.TrySetResult(null);
-        using var cancellationRegistration = timeoutSource.Token.Register(() => completion.TrySetResult(null));
-        ripper.Start();
-        return await completion.Task;
-    }
-
-    private static bool Matches(string? artist, string? title, TrackCaptureRequest request)
-    {
-        var matchesArtist = string.Equals(artist?.Trim(), request.Artist.Trim(), StringComparison.OrdinalIgnoreCase);
-        var matchesTitle = string.IsNullOrWhiteSpace(request.Title)
-            || string.Equals(title?.Trim(), request.Title.Trim(), StringComparison.OrdinalIgnoreCase);
-        return matchesArtist && matchesTitle;
-    }
-}
-
-internal sealed record TrackAudioInfo(string ContentType, int BitrateKbps);
-
-internal static class TrackAudioValidation
-{
-    public static bool TryAnalyze(byte[] content, out TrackAudioInfo audioInfo)
-    {
-        audioInfo = new TrackAudioInfo(string.Empty, 0);
-        try
-        {
-            using var stream = new MemoryStream(content, writable: false);
-            var track = new ATL.Track(stream);
-            if (track.DurationMs <= 0 || track.SampleRate <= 0 || track.Bitrate <= 0) return false;
-
-            var detectedType = track.AudioFormat.MimeList.FirstOrDefault()?.ToLowerInvariant();
-            var contentType = detectedType switch
-            {
-                "audio/aac" or "audio/aacp" => "audio/aac",
-                "audio/flac" or "audio/x-flac" => "audio/flac",
-                "audio/ogg" or "application/ogg" => "audio/ogg",
-                "audio/mp3" or "audio/mpeg" => "audio/mpeg",
-                _ => string.Empty
-            };
-            if (contentType.Length == 0) return false;
-
-            audioInfo = new TrackAudioInfo(contentType, Convert.ToInt32(Math.Round(track.Bitrate)));
-            return true;
-        }
-        catch (Exception)
-        {
-            return false;
         }
     }
 }

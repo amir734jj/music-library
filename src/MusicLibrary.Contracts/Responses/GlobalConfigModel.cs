@@ -1,4 +1,6 @@
-namespace MusicLibrary.Contracts;
+using MusicLibrary.Contracts.Attributes;
+
+namespace MusicLibrary.Contracts.Responses;
 
 public sealed class GlobalConfigModel
 {

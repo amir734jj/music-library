@@ -1,4 +1,4 @@
-namespace MusicLibrary.Contracts;
+namespace MusicLibrary.Contracts.Constants;
 
 public static class Roles
 {

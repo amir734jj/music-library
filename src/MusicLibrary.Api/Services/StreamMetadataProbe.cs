@@ -4,13 +4,6 @@ using StreamRipper.Models;
 
 namespace MusicLibrary.Api.Services;
 
-public sealed record MetadataProbeResult(string RawMetadata, string? Artist, string? Title);
-
-public interface IStreamMetadataProbe
-{
-    Task<MetadataProbeResult?> ProbeAsync(Uri streamUri, TimeSpan timeout, CancellationToken cancellationToken);
-}
-
 public sealed partial class StreamMetadataProbe(IStreamRipperFactory streamRipperFactory) : IStreamMetadataProbe
 {
     [GeneratedRegex("(?:^|;)\\s*StreamTitle='(?<value>(?:\\\\.|[^'])*)'", RegexOptions.IgnoreCase)]
@@ -42,7 +35,7 @@ public sealed partial class StreamMetadataProbe(IStreamRipperFactory streamRippe
         };
 
         ripper.Start();
-        using var cancellationRegistration = timeoutSource.Token.Register(() => completion.TrySetResult(null));
+        await using var cancellationRegistration = timeoutSource.Token.Register(() => completion.TrySetResult(null));
         return await completion.Task;
     }
 

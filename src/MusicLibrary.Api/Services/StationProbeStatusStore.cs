@@ -5,7 +5,7 @@ namespace MusicLibrary.Api.Services;
 public sealed class StationProbeStatusStore
 {
     private readonly ConcurrentDictionary<Guid, DateTimeOffset> _activeProbes = new();
-    private readonly object _batchLock = new();
+    private readonly Lock _batchLock = new();
     private DateTimeOffset? _lastBatchStartedAt;
     private DateTimeOffset? _lastBatchCompletedAt;
 
@@ -51,8 +51,3 @@ public sealed class StationProbeStatusStore
             _activeProbes.ToDictionary(entry => entry.Key, entry => entry.Value));
     }
 }
-
-public sealed record StationProbeRuntimeSnapshot(
-    DateTimeOffset? LastBatchStartedAt,
-    DateTimeOffset? LastBatchCompletedAt,
-    IReadOnlyDictionary<Guid, DateTimeOffset> ActiveProbes);

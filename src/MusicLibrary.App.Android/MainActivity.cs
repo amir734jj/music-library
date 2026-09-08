@@ -1,9 +1,7 @@
-using Android.App;
 using Android.Content;
 using Android.Content.PM;
-using Android.OS;
 using Avalonia.Android;
-using MusicLibrary.App;
+using MusicLibrary.App.Services;
 
 namespace MusicLibrary.App.Android;
 
@@ -41,8 +39,8 @@ public sealed class MainActivity : AvaloniaMainActivity
             _cachedTrackPlayer = player;
             try
             {
-                player.SetDataSource(_cachedTrackPath);
-                player.Prepare();
+                await player.SetDataSourceAsync(_cachedTrackPath);
+                player.PrepareAsync();
                 player.Completion += (_, _) => ReleaseCachedTrackPlayer();
                 player.Start();
             }
@@ -96,24 +94,24 @@ public sealed class MainActivity : AvaloniaMainActivity
         _cachedTrackPlayer = player;
         player.Completion += (_, _) =>
         {
-            if (_cachedTrackPlayer == player) ReleaseCachedTrackPlayer();
+            if (_cachedTrackPlayer.Equals(player)) ReleaseCachedTrackPlayer();
             completion.TrySetResult();
         };
-        using var cancellationRegistration = cancellationToken.Register(() =>
+        await using var cancellationRegistration = cancellationToken.Register(() =>
         {
-            if (_cachedTrackPlayer == player) ReleaseCachedTrackPlayer();
+            if (_cachedTrackPlayer.Equals(player)) ReleaseCachedTrackPlayer();
             completion.TrySetCanceled(cancellationToken);
         });
         try
         {
-            player.SetDataSource(_cachedTrackPath);
-            player.Prepare();
+            await player.SetDataSourceAsync(_cachedTrackPath);
+            player.PrepareAsync();
             player.Start();
             await completion.Task;
         }
         catch
         {
-            if (_cachedTrackPlayer == player) ReleaseCachedTrackPlayer();
+            if (_cachedTrackPlayer.Equals(player)) ReleaseCachedTrackPlayer();
             throw;
         }
     }

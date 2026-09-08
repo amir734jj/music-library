@@ -1,7 +1,9 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Media;
-using MusicLibrary.Contracts;
+using MusicLibrary.App.Services;
+using MusicLibrary.Contracts.Constants;
+using MusicLibrary.Contracts.Responses;
 using Projektanker.Icons.Avalonia;
 
 namespace MusicLibrary.App;
@@ -406,7 +408,7 @@ public sealed partial class MainView : UserControl
                 var canReplaceRows = showLoading || NowPlayingScroll.Offset.Y <= 1;
                 if ((showLoading || hasChanges) && canReplaceRows)
                 {
-                    _nowPlayingSnapshot = observations.ToList();
+                    _nowPlayingSnapshot = [.. observations];
                     _subscriptionButtons.Clear();
                     NowPlayingList.ItemsSource = observations.Select(CreateNowPlayingRow).ToList();
                 }
@@ -600,6 +602,8 @@ public sealed partial class MainView : UserControl
         CancellationToken cancellationToken = default,
         bool showLoading = true)
     {
+        if (_libraryMode != LibraryMode.Following) return;
+
         if (showLoading)
         {
             await _nowPlayingLoadGate.WaitAsync(cancellationToken);
@@ -622,15 +626,18 @@ public sealed partial class MainView : UserControl
                 if (_libraryMode != LibraryMode.Following) return;
                 if (!string.IsNullOrWhiteSpace(query))
                 {
-                    subscriptions = subscriptions
-                        .Where(subscription => subscription.ArtistName.Contains(query.Trim(), StringComparison.OrdinalIgnoreCase))
-                        .ToList();
+                    subscriptions =
+                    [
+                        .. subscriptions
+                            .Where(subscription =>
+                                subscription.ArtistName.Contains(query.Trim(), StringComparison.OrdinalIgnoreCase))
+                    ];
                 }
                 var hasChanges = !_followingSnapshot.SequenceEqual(subscriptions);
                 var canReplaceRows = showLoading || NowPlayingScroll.Offset.Y <= 1;
                 if ((showLoading || hasChanges) && canReplaceRows)
                 {
-                    _followingSnapshot = subscriptions.ToList();
+                    _followingSnapshot = [.. subscriptions];
                     NowPlayingList.ItemsSource = subscriptions.Select(CreateFollowingRow).ToList();
                 }
                 NowPlayingStatus.Text = subscriptions.Count == 0
@@ -679,7 +686,10 @@ public sealed partial class MainView : UserControl
             {
                 await MusicLibraryApi.DeleteSubscriptionAsync(subscription.Id);
                 _subscribedArtists.Remove(subscription.ArtistName);
-                await LoadFollowingAsync(LibrarySearchInput.Text);
+                if (_libraryMode == LibraryMode.Following)
+                {
+                    await LoadFollowingAsync(LibrarySearchInput.Text);
+                }
             }
             catch (Exception exception)
             {
@@ -726,7 +736,7 @@ public sealed partial class MainView : UserControl
                 var canReplaceRows = showLoading || NowPlayingScroll.Offset.Y <= 1 || hasRemovedTracks;
                 if ((showLoading || hasChanges) && canReplaceRows)
                 {
-                    _trendingSnapshot = trends.ToList();
+                    _trendingSnapshot = [.. trends];
                     NowPlayingList.ItemsSource = trends.Select((trend, index) => CreateTrendingRow(trend, index + 1)).ToList();
                 }
                 if (_trendingBatchDownloadCancellation is null && _trendingPlaybackCancellation is null)
