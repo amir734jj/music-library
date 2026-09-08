@@ -23,6 +23,7 @@ public sealed class GlobalConfigService(IEfRepository repository) : IGlobalConfi
             ProbeBatchSize = GetInt(rows, "PROBE_BATCH_SIZE", 100, 1, 1000),
             TrendingCacheEncryptionKey = Get(rows, TrendingCacheEncryptionKeyName, string.Empty),
             TrendingCacheCaptureTimeoutSeconds = GetInt(rows, "TRENDING_CACHE_CAPTURE_TIMEOUT_SECONDS", 600, 60, 1800),
+            TrendingMinimumDurationSeconds = GetInt(rows, "TRENDING_MINIMUM_DURATION_SECONDS", 60, 15, 600),
             TrendingCacheRetentionHours = GetInt(rows, "TRENDING_CACHE_RETENTION_HOURS", 24, 1, 168),
             TrendingCacheMaxSizeMegabytes = GetInt(rows, "TRENDING_CACHE_MAX_SIZE_MEGABYTES", 1024, 32, 1024)
         };

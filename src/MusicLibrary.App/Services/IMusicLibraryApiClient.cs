@@ -21,6 +21,9 @@ public interface IMusicLibraryApiClient
     [Get("/api/now-playing")]
     Task<ApiResponse<List<NowPlayingSummary>>> GetNowPlayingAsync([Query] string? query, [Authorize] string accessToken, CancellationToken cancellationToken = default);
 
+    [Get("/api/stations")]
+    Task<ApiResponse<List<StationSummary>>> GetStationsAsync([Query] string? query, [Authorize] string accessToken, CancellationToken cancellationToken = default);
+
     [Get("/api/now-playing/{stationId}")]
     Task<ApiResponse<NowPlayingSummary>> GetNowPlayingStationAsync(Guid stationId, [Authorize] string accessToken, CancellationToken cancellationToken = default);
 

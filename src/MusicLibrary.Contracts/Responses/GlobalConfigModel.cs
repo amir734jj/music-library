@@ -25,6 +25,9 @@ public sealed class GlobalConfigModel
     [GlobalConfigCol(Name = "TRENDING_CACHE_CAPTURE_TIMEOUT_SECONDS")]
     public int TrendingCacheCaptureTimeoutSeconds { get; init; } = 600;
 
+    [GlobalConfigCol(Name = "TRENDING_MINIMUM_DURATION_SECONDS")]
+    public int TrendingMinimumDurationSeconds { get; init; } = 60;
+
     [GlobalConfigCol(Name = "TRENDING_CACHE_RETENTION_HOURS")]
     public int TrendingCacheRetentionHours { get; init; } = 24;
 

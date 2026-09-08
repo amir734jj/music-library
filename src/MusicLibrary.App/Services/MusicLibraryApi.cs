@@ -130,6 +130,16 @@ public static class MusicLibraryApi
         return GetContent(response);
     }
 
+    public static async Task<IReadOnlyCollection<StationSummary>> GetStationsAsync(
+        string? query = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (!IsAuthenticated) throw new InvalidOperationException("An authenticated session is required.");
+        using var response = await Client.GetStationsAsync(query, _authentication!.AccessToken, cancellationToken);
+        EnsureSuccess(response);
+        return GetContent(response);
+    }
+
     public static async Task<NowPlayingSummary?> GetNowPlayingStationAsync(Guid stationId, CancellationToken cancellationToken = default)
     {
         if (!IsAuthenticated) throw new InvalidOperationException("An authenticated session is required.");
@@ -283,6 +293,7 @@ public static class MusicLibraryApi
             ["PROBE_BATCH_SIZE"] = config.ProbeBatchSize.ToString(System.Globalization.CultureInfo.InvariantCulture),
             ["TRENDING_CACHE_ENCRYPTION_KEY"] = config.TrendingCacheEncryptionKey,
             ["TRENDING_CACHE_CAPTURE_TIMEOUT_SECONDS"] = config.TrendingCacheCaptureTimeoutSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["TRENDING_MINIMUM_DURATION_SECONDS"] = config.TrendingMinimumDurationSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture),
             ["TRENDING_CACHE_RETENTION_HOURS"] = config.TrendingCacheRetentionHours.ToString(System.Globalization.CultureInfo.InvariantCulture),
             ["TRENDING_CACHE_MAX_SIZE_MEGABYTES"] = config.TrendingCacheMaxSizeMegabytes.ToString(System.Globalization.CultureInfo.InvariantCulture)
         };

@@ -19,6 +19,7 @@
           <StackPanel Name="LibraryNavigationPanel" Spacing="8">
             <TextBlock Name="LibraryNavigationTitle" Text="Library" FontWeight="SemiBold" />
             <Button Name="NowPlayingNavigationButton" Classes="nav" Content="Now playing" HorizontalContentAlignment="Left" Click="Library_Click" />
+            <Button Name="StationsNavigationButton" Classes="nav" Content="Stations" HorizontalContentAlignment="Left" Click="Stations_Click" />
             <Button Name="FollowingNavigationButton" Classes="nav" Content="Following" HorizontalContentAlignment="Left" Click="Following_Click" />
             <Button Name="TrendingNavigationButton" Classes="nav" Content="Trending" HorizontalContentAlignment="Left" Click="Trending_Click" />
             <Button Name="UserBoardNavigationButton" Classes="nav" Content="User board" HorizontalContentAlignment="Left" Click="UserBoard_Click" />
@@ -121,6 +122,9 @@
                   <CheckBox Name="ShowTrendingCacheEncryptionKeyInput" Content="Show encryption key" Click="ShowTrendingCacheEncryptionKey_Click" />
                   <TextBlock Text="Song boundary wait timeout (seconds)" FontWeight="SemiBold" />
                   <NumericUpDown Name="ConfigTrendingCacheCaptureTimeoutInput" Minimum="60" Maximum="1800" Increment="60" />
+                  <TextBlock Text="Minimum trending duration (seconds)" FontWeight="SemiBold" />
+                  <TextBlock Text="Shorter cached recordings are excluded from Trending." FontSize="12" Opacity="0.65" TextWrapping="Wrap" />
+                  <NumericUpDown Name="ConfigTrendingMinimumDurationInput" Minimum="15" Maximum="600" Increment="15" />
                   <TextBlock Text="Trending cache retention (hours)" FontWeight="SemiBold" />
                   <NumericUpDown Name="ConfigTrendingCacheRetentionInput" Minimum="1" Maximum="168" Increment="1" />
                   <TextBlock Text="Trending cache maximum size (MiB)" FontWeight="SemiBold" />

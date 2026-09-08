@@ -55,6 +55,35 @@ public sealed class LibraryController(
         ];
     }
 
+    [HttpGet("stations")]
+    public async Task<IReadOnlyCollection<StationSummary>> Stations([FromQuery] string? query)
+    {
+        var filters = string.IsNullOrWhiteSpace(query)
+            ? []
+            : new[]
+            {
+                Filter<Station>.LikeAny(
+                    $"%{query.Trim().ToLowerInvariant()}%",
+                    station => station.Name.ToLower(),
+                    station => station.Genre.ToLower(),
+                    station => station.StreamUrl.ToLower())
+            };
+        return
+        [
+            .. await repository.For<Station>().GetAll(
+                filterExprs: filters,
+                orderBy: Ordering<Station>.Asc(station => station.Name),
+                project: station => new StationSummary(
+                    station.Id,
+                    station.Name,
+                    station.Genre,
+                    station.StreamUrl,
+                    station.IsProbeEnabled,
+                    station.LastProbedAt),
+                maxResults: 200)
+        ];
+    }
+
     [HttpGet("now-playing/{stationId:guid}")]
     public async Task<ActionResult<NowPlayingSummary>> NowPlayingStation(Guid stationId)
     {
@@ -204,7 +233,9 @@ public sealed class LibraryController(
                         cachedTrack?.Id,
                         cachedTrack?.ExpiresAt);
                 })
-                .Where(trend => trend.CachedTrackId is not null)
+                .Where(trend => trend.CachedTrackId is not null
+                                && trend.DurationMs is { } durationMs
+                                && durationMs >= config.TrendingMinimumDurationSeconds * 1000)
                 .OrderByDescending(trend => trend.ObservationCount)
                 .ThenByDescending(trend => trend.StationCount)
                 .ThenByDescending(trend => trend.LastObservedAt)

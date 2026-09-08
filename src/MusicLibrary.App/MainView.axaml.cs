@@ -13,6 +13,7 @@ public sealed partial class MainView : UserControl
     private enum LibraryMode
     {
         NowPlaying,
+        Stations,
         Following,
         Trending,
         UserBoard,
@@ -292,6 +293,13 @@ public sealed partial class MainView : UserControl
         _ = LoadCurrentLibraryViewAsync(LibrarySearchInput.Text);
     }
 
+    private void Stations_Click(object? sender, RoutedEventArgs eventArgs)
+    {
+        SetLibraryMode(LibraryMode.Stations);
+        ShowLibrary();
+        _ = LoadCurrentLibraryViewAsync(LibrarySearchInput.Text);
+    }
+
     private void Following_Click(object? sender, RoutedEventArgs eventArgs)
     {
         SetLibraryMode(LibraryMode.Following);
@@ -321,6 +329,7 @@ public sealed partial class MainView : UserControl
         _trendingPlaybackCancellation?.Cancel();
         _libraryMode = mode;
         NowPlayingNavigationButton.Classes.Set("active", mode == LibraryMode.NowPlaying);
+        StationsNavigationButton.Classes.Set("active", mode == LibraryMode.Stations);
         FollowingNavigationButton.Classes.Set("active", mode == LibraryMode.Following);
         TrendingNavigationButton.Classes.Set("active", mode == LibraryMode.Trending);
         UserBoardNavigationButton.Classes.Set("active", mode == LibraryMode.UserBoard);
@@ -333,6 +342,7 @@ public sealed partial class MainView : UserControl
         LibraryViewTitle.Text = mode switch
         {
             LibraryMode.Following => "Following",
+            LibraryMode.Stations => "Stations",
             LibraryMode.Trending => "Trending Now",
             LibraryMode.UserBoard => "User board",
             LibraryMode.About => "About",
@@ -341,6 +351,7 @@ public sealed partial class MainView : UserControl
         LibrarySearchInput.PlaceholderText = mode switch
         {
             LibraryMode.Following => "Search followed artists",
+            LibraryMode.Stations => "Search station, genre, or URL",
             LibraryMode.Trending => "Search trending artist or track",
             LibraryMode.UserBoard => "Search listeners or playback",
             LibraryMode.About => string.Empty,
@@ -363,7 +374,7 @@ public sealed partial class MainView : UserControl
         _probeStatusPollingCancellation?.Cancel();
         AdministrationView.IsVisible = false;
         LibraryView.IsVisible = true;
-        if (_libraryMode == LibraryMode.About)
+        if (_libraryMode is LibraryMode.About or LibraryMode.Stations)
         {
             _libraryPollingCancellation?.Cancel();
         }
@@ -420,6 +431,7 @@ public sealed partial class MainView : UserControl
         return _libraryMode switch
         {
             LibraryMode.Following => LoadFollowingAsync(query, cancellationToken, showLoading),
+            LibraryMode.Stations => LoadStationsAsync(query, cancellationToken, showLoading),
             LibraryMode.Trending => LoadTrendingAsync(query, cancellationToken, showLoading),
             LibraryMode.UserBoard => LoadPlaybackActivitiesAsync(query, cancellationToken, showLoading),
             LibraryMode.About => Task.CompletedTask,
@@ -454,6 +466,91 @@ public sealed partial class MainView : UserControl
             Opacity = 0.65
         });
         NowPlayingList.ItemsSource = new[] { content };
+    }
+
+    private async Task LoadStationsAsync(
+        string? query = null,
+        CancellationToken cancellationToken = default,
+        bool showLoading = true)
+    {
+        await _nowPlayingLoadGate.WaitAsync(cancellationToken);
+        try
+        {
+            if (showLoading)
+            {
+                NowPlayingStatus.Text = "Loading stations...";
+                NowPlayingList.ItemsSource = null;
+            }
+            var stations = await MusicLibraryApi.GetStationsAsync(query, cancellationToken);
+            if (_libraryMode != LibraryMode.Stations) return;
+            NowPlayingList.ItemsSource = stations.Select(CreateStationRow).ToList();
+            NowPlayingStatus.Text = stations.Count switch
+            {
+                0 => string.IsNullOrWhiteSpace(query) ? "No stations are available." : "No matching stations found.",
+                200 => "Showing the first 200 matching stations. Refine your search to narrow the results.",
+                _ => $"{stations.Count} station(s)."
+            };
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception exception)
+        {
+            NowPlayingStatus.Text = exception.Message;
+        }
+        finally
+        {
+            _nowPlayingLoadGate.Release();
+        }
+    }
+
+    private Control CreateStationRow(StationSummary station)
+    {
+        var row = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("*,12,Auto"),
+            Margin = new Avalonia.Thickness(0, 0, 0, 12)
+        };
+        var details = new StackPanel { Spacing = 2 };
+        details.Children.Add(new TextBlock
+        {
+            Text = station.Name,
+            FontWeight = Avalonia.Media.FontWeight.SemiBold,
+            TextWrapping = Avalonia.Media.TextWrapping.Wrap
+        });
+        details.Children.Add(new TextBlock
+        {
+            Text = string.IsNullOrWhiteSpace(station.Genre) ? station.StreamUrl : station.Genre,
+            Opacity = 0.7,
+            TextWrapping = Avalonia.Media.TextWrapping.Wrap
+        });
+        row.Children.Add(details);
+
+        var hasDirectStream = Uri.TryCreate(station.StreamUrl, UriKind.Absolute, out var streamUri)
+            && (streamUri.Scheme == Uri.UriSchemeHttp || streamUri.Scheme == Uri.UriSchemeHttps)
+            && NativeRadioActions.ListenAsync is not null;
+        if (hasDirectStream || NativeRadioActions.ListenToStationAsync is not null)
+        {
+            var listenButton = new Button
+            {
+                Content = CreateActionIcon("mdi-radio-tower"),
+                Width = 36,
+                Height = 32,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+            };
+            listenButton.Classes.Add("playback");
+            var isPlaying = _playingStationId == station.Id;
+            if (isPlaying) _playingStationButton = listenButton;
+            SetStationButtonState(listenButton, isPlaying, station.Name);
+            listenButton.Click += async (_, _) => await ListenToNowPlayingStationAsync(
+                station.Id,
+                streamUri,
+                station.Name,
+                listenButton);
+            Grid.SetColumn(listenButton, 2);
+            row.Children.Add(listenButton);
+        }
+        return row;
     }
 
     private async Task LoadPlaybackActivitiesAsync(
@@ -975,9 +1072,7 @@ public sealed partial class MainView : UserControl
         });
         details.Children.Add(new TextBlock
         {
-            Text = trend.BitrateKbps is > 0
-                ? $"{trend.ObservationCount} detection(s) across {trend.StationCount} station(s) | {trend.BitrateKbps} kbps"
-                : $"{trend.ObservationCount} detection(s) across {trend.StationCount} station(s)",
+            Text = GetTrendingDetails(trend),
             Opacity = 0.7
         });
         Grid.SetColumn(details, 2);
@@ -1330,6 +1425,14 @@ public sealed partial class MainView : UserControl
 
     private static string GetTrackDisplayName(TrendingSummary trend) =>
         string.IsNullOrWhiteSpace(trend.Title) ? trend.Artist : $"{trend.Artist} - {trend.Title}";
+
+    private static string GetTrendingDetails(TrendingSummary trend)
+    {
+        var details = $"{trend.ObservationCount} detection(s) across {trend.StationCount} station(s)";
+        if (trend.BitrateKbps is > 0) details += $" | {trend.BitrateKbps} kbps";
+        var duration = FormatTrackDuration(trend.DurationMs);
+        return duration is null ? details : $"{details} | {duration}";
+    }
 
     private static string GetTrendingPlaybackSubtitle(TrendingSummary trend)
     {
@@ -1784,6 +1887,7 @@ public sealed partial class MainView : UserControl
             var probeTimeout = GetDisplayedInteger(ConfigProbeTimeoutInput, 2, 60, "Probe timeout");
             var probeBatchSize = GetDisplayedInteger(ConfigProbeBatchSizeInput, 1, 1000, "Stations per batch");
             var cacheTimeout = GetDisplayedInteger(ConfigTrendingCacheCaptureTimeoutInput, 60, 1800, "Trending cache capture timeout");
+            var minimumTrendingDuration = GetDisplayedInteger(ConfigTrendingMinimumDurationInput, 15, 600, "Minimum trending duration");
             var cacheRetention = GetDisplayedInteger(ConfigTrendingCacheRetentionInput, 1, 168, "Trending cache retention");
             var cacheMaxSize = GetDisplayedInteger(ConfigTrendingCacheMaxSizeInput, 32, 1024, "Trending cache maximum size");
             var cacheKey = ConfigTrendingCacheEncryptionKeyInput.Text?.Trim() ?? string.Empty;
@@ -1802,6 +1906,7 @@ public sealed partial class MainView : UserControl
                 ProbeBatchSize = probeBatchSize,
                 TrendingCacheEncryptionKey = cacheKey,
                 TrendingCacheCaptureTimeoutSeconds = cacheTimeout,
+                TrendingMinimumDurationSeconds = minimumTrendingDuration,
                 TrendingCacheRetentionHours = cacheRetention,
                 TrendingCacheMaxSizeMegabytes = cacheMaxSize
             };
@@ -1850,6 +1955,7 @@ public sealed partial class MainView : UserControl
             ConfigProbeBatchSizeInput.Value = config.ProbeBatchSize;
             ConfigTrendingCacheEncryptionKeyInput.Text = config.TrendingCacheEncryptionKey;
             ConfigTrendingCacheCaptureTimeoutInput.Value = config.TrendingCacheCaptureTimeoutSeconds;
+            ConfigTrendingMinimumDurationInput.Value = config.TrendingMinimumDurationSeconds;
             ConfigTrendingCacheRetentionInput.Value = config.TrendingCacheRetentionHours;
             ConfigTrendingCacheMaxSizeInput.Value = config.TrendingCacheMaxSizeMegabytes;
             var cacheSizeMegabytes = cacheStatus.SizeBytes / (1024d * 1024d);
@@ -1991,7 +2097,8 @@ public sealed partial class MainView : UserControl
                     ? "Failing"
                     : "Waiting";
         var lastAttempt = station.LastProbedAt?.LocalDateTime.ToString("g") ?? "never";
-        var lastMetadata = station.LastMetadataAt?.LocalDateTime.ToString("g") ?? "never";
+        var lastSuccessfulProbe = station.LastMetadataAt?.LocalDateTime.ToString("g") ?? "never";
+        var category = string.IsNullOrWhiteSpace(station.Genre) ? "Uncategorized" : station.Genre;
         var row = new Grid
         {
             ColumnDefinitions = new ColumnDefinitions("*,Auto"),
@@ -2006,7 +2113,13 @@ public sealed partial class MainView : UserControl
         });
         details.Children.Add(new TextBlock
         {
-            Text = $"Last attempt: {lastAttempt} | Metadata: {lastMetadata} | Failures: {station.ConsecutiveProbeFailures}",
+            Text = $"Category: {category}",
+            Opacity = 0.7,
+            TextWrapping = Avalonia.Media.TextWrapping.Wrap
+        });
+        details.Children.Add(new TextBlock
+        {
+            Text = $"Last attempt: {lastAttempt} | Last successful probe: {lastSuccessfulProbe} | Failures: {station.ConsecutiveProbeFailures}",
             Opacity = 0.7,
             TextWrapping = Avalonia.Media.TextWrapping.Wrap
         });
