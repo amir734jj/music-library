@@ -55,6 +55,8 @@ internal static class Program
                 return Task.CompletedTask;
             };
             NativeRadioActions.PlayFileToCompletionAsync = DesktopTrackPlayer.PlayToCompletionAsync;
+            NativeRadioActions.ToggleFilePlaybackAsync = DesktopTrackPlayer.TogglePlaybackAsync;
+            NativeRadioActions.GetPlaybackStateAsync = DesktopTrackPlayer.GetPlaybackStateAsync;
             NativeRadioActions.StopPlaybackAsync = () =>
             {
                 _playbackCancellation?.Cancel();

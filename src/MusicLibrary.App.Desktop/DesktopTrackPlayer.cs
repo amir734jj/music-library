@@ -10,6 +10,25 @@ namespace MusicLibrary.App.Desktop;
 
 internal static class DesktopTrackPlayer
 {
+    private static readonly object PlaybackControlsLock = new();
+    private static PlaybackControls? _playbackControls;
+
+    public static Task<int> TogglePlaybackAsync()
+    {
+        lock (PlaybackControlsLock)
+        {
+            return Task.FromResult(_playbackControls?.Toggle() ?? -1);
+        }
+    }
+
+    public static Task<int> GetPlaybackStateAsync()
+    {
+        lock (PlaybackControlsLock)
+        {
+            return Task.FromResult(_playbackControls?.GetState() ?? -1);
+        }
+    }
+
     public static async Task PlayToCompletionAsync(
         byte[] content,
         string contentType,
@@ -46,6 +65,19 @@ internal static class DesktopTrackPlayer
 
         await using var reader = new MediaFoundationReader(source);
         using var output = new WaveOutEvent();
+        var controls = new PlaybackControls(
+            () => output.PlaybackState switch
+            {
+                NAudio.Wave.PlaybackState.Playing => Pause(output),
+                NAudio.Wave.PlaybackState.Paused => Play(output),
+                _ => -1
+            },
+            () => output.PlaybackState switch
+            {
+                NAudio.Wave.PlaybackState.Playing => 1,
+                NAudio.Wave.PlaybackState.Paused => 0,
+                _ => -1
+            });
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         output.PlaybackStopped += (_, eventArgs) =>
         {
@@ -59,8 +91,16 @@ internal static class DesktopTrackPlayer
         };
         await using var cancellationRegistration = cancellationToken.Register(output.Stop);
         output.Init(reader);
-        output.Play();
-        await completion.Task.WaitAsync(cancellationToken);
+        SetPlaybackControls(controls);
+        try
+        {
+            output.Play();
+            await completion.Task.WaitAsync(cancellationToken);
+        }
+        finally
+        {
+            ClearPlaybackControls(controls);
+        }
     }
 
     private static async Task PlayWithMiniAudioAsync(string source, CancellationToken cancellationToken)
@@ -73,9 +113,23 @@ internal static class DesktopTrackPlayer
                 : new AssetDataProvider(engine, source);
         using var output = engine.InitializePlaybackDevice(null, format);
         using var player = new SoundPlayer(engine, format, provider);
+        var controls = new PlaybackControls(
+            () => player.State switch
+            {
+                SoundFlow.Enums.PlaybackState.Playing => Pause(player),
+                SoundFlow.Enums.PlaybackState.Paused => Play(player),
+                _ => -1
+            },
+            () => player.State switch
+            {
+                SoundFlow.Enums.PlaybackState.Playing => 1,
+                SoundFlow.Enums.PlaybackState.Paused => 0,
+                _ => -1
+            });
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         provider.EndOfStreamReached += (_, _) => completion.TrySetResult();
         output.MasterMixer.AddComponent(player);
+        SetPlaybackControls(controls);
         try
         {
             output.Start();
@@ -84,9 +138,52 @@ internal static class DesktopTrackPlayer
         }
         finally
         {
+            ClearPlaybackControls(controls);
             player.Stop();
             output.Stop();
             output.MasterMixer.RemoveComponent(player);
         }
     }
+
+    private static int Pause(WaveOutEvent output)
+    {
+        output.Pause();
+        return 0;
+    }
+
+    private static int Play(WaveOutEvent output)
+    {
+        output.Play();
+        return 1;
+    }
+
+    private static int Pause(SoundPlayer player)
+    {
+        player.Pause();
+        return 0;
+    }
+
+    private static int Play(SoundPlayer player)
+    {
+        player.Play();
+        return 1;
+    }
+
+    private static void SetPlaybackControls(PlaybackControls controls)
+    {
+        lock (PlaybackControlsLock)
+        {
+            _playbackControls = controls;
+        }
+    }
+
+    private static void ClearPlaybackControls(PlaybackControls controls)
+    {
+        lock (PlaybackControlsLock)
+        {
+            if (ReferenceEquals(_playbackControls, controls)) _playbackControls = null;
+        }
+    }
+
+    private sealed record PlaybackControls(Func<int> Toggle, Func<int> GetState);
 }

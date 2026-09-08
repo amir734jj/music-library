@@ -11,6 +11,9 @@ public static class NativeStreamDownloader
         Directory.CreateDirectory(destinationDirectory);
         var safeFileName = Path.GetFileName(fileName);
         if (string.IsNullOrWhiteSpace(safeFileName)) safeFileName = "radio-track.mp3";
+        var existingFile = new FileInfo(Path.Combine(destinationDirectory, safeFileName));
+        if (existingFile.Exists && existingFile.Length == content.LongLength) return existingFile.FullName;
+
         var temporaryPath = Path.Combine(destinationDirectory, $".{Guid.NewGuid():N}.download");
         try
         {
