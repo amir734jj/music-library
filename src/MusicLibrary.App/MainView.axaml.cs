@@ -715,9 +715,10 @@ public sealed partial class MainView : UserControl
                 Spacing = 4,
                 VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
             };
+            var cachedUntilText = trend.CachedUntil?.LocalDateTime.ToString("g");
             var playButton = new Button { Content = "Play" };
-            ToolTip.SetTip(playButton, trend.CachedUntil is { } cachedUntil
-                ? $"Play cached recording (available until {cachedUntil.LocalDateTime:g})"
+            ToolTip.SetTip(playButton, cachedUntilText is not null
+                ? $"Play cached recording (available until {cachedUntilText})"
                 : "Play cached recording");
             playButton.Click += async (_, _) => await PlayTrendingTrackAsync(cachedTrackId, playButton);
             actions.Children.Add(playButton);
@@ -725,8 +726,8 @@ public sealed partial class MainView : UserControl
             {
                 Content = "Download"
             };
-            ToolTip.SetTip(downloadButton, trend.CachedUntil is { } cachedUntil
-                ? $"Cached until {cachedUntil.LocalDateTime:g}"
+            ToolTip.SetTip(downloadButton, cachedUntilText is not null
+                ? $"Cached until {cachedUntilText}"
                 : "Download cached recording");
             downloadButton.Click += async (_, _) => await DownloadTrendingTrackAsync(cachedTrackId, downloadButton);
             actions.Children.Add(downloadButton);
