@@ -710,20 +710,57 @@ public sealed partial class MainView : UserControl
         row.Children.Add(lastObserved);
         if (trend.CachedTrackId is { } cachedTrackId)
         {
+            var actions = new StackPanel
+            {
+                Spacing = 4,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+            };
+            var playButton = new Button { Content = "Play" };
+            ToolTip.SetTip(playButton, trend.CachedUntil is { } cachedUntil
+                ? $"Play cached recording (available until {cachedUntil.LocalDateTime:g})"
+                : "Play cached recording");
+            playButton.Click += async (_, _) => await PlayTrendingTrackAsync(cachedTrackId, playButton);
+            actions.Children.Add(playButton);
             var downloadButton = new Button
             {
-                Content = "Download",
-                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+                Content = "Download"
             };
             ToolTip.SetTip(downloadButton, trend.CachedUntil is { } cachedUntil
                 ? $"Cached until {cachedUntil.LocalDateTime:g}"
                 : "Download cached recording");
             downloadButton.Click += async (_, _) => await DownloadTrendingTrackAsync(cachedTrackId, downloadButton);
-            Grid.SetColumn(downloadButton, 4);
-            Grid.SetRowSpan(downloadButton, 2);
-            row.Children.Add(downloadButton);
+            actions.Children.Add(downloadButton);
+            Grid.SetColumn(actions, 4);
+            Grid.SetRowSpan(actions, 2);
+            row.Children.Add(actions);
         }
         return row;
+    }
+
+    private async Task PlayTrendingTrackAsync(Guid cachedTrackId, Button playButton)
+    {
+        if (NativeRadioActions.PlayFileAsync is null)
+        {
+            NowPlayingStatus.Text = "Playback is not available on this platform.";
+            return;
+        }
+
+        playButton.IsEnabled = false;
+        NowPlayingStatus.Text = "Preparing encrypted recording...";
+        try
+        {
+            var download = await MusicLibraryApi.DownloadTrendingTrackAsync(cachedTrackId);
+            await NativeRadioActions.PlayFileAsync(download.Content, download.ContentType, download.FileName);
+            NowPlayingStatus.Text = $"Playing {download.FileName}";
+        }
+        catch (Exception exception)
+        {
+            NowPlayingStatus.Text = exception.Message;
+        }
+        finally
+        {
+            playButton.IsEnabled = true;
+        }
     }
 
     private async Task DownloadTrendingTrackAsync(Guid cachedTrackId, Button downloadButton)

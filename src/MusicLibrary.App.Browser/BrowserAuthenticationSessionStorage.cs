@@ -14,4 +14,7 @@ internal static partial class BrowserAuthenticationSessionStorage
 
     [JSImport("downloadFile", ModuleName)]
     internal static partial void DownloadFile(byte[] content, string contentType, string fileName);
+
+    [JSImport("playFile", ModuleName)]
+    internal static partial Task PlayFileAsync(byte[] content, string contentType);
 }

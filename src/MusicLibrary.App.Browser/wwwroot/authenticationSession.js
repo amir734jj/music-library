@@ -1,4 +1,6 @@
 const sessionKey = 'music-library.authentication';
+let playingAudio = null;
+let playingAudioUrl = null;
 
 export function loadAuthenticationSession() {
     return globalThis.localStorage.getItem(sessionKey);
@@ -22,4 +24,32 @@ export function downloadFile(content, contentType, fileName) {
     anchor.click();
     anchor.remove();
     globalThis.setTimeout(() => globalThis.URL.revokeObjectURL(url), 0);
+}
+
+export async function playFile(content, contentType) {
+    if (playingAudio !== null) {
+        playingAudio.pause();
+    }
+    if (playingAudioUrl !== null) {
+        globalThis.URL.revokeObjectURL(playingAudioUrl);
+    }
+
+    playingAudioUrl = globalThis.URL.createObjectURL(new Blob([new Uint8Array(content)], { type: contentType }));
+    playingAudio = new Audio(playingAudioUrl);
+    playingAudio.addEventListener('ended', clearPlayingAudio, { once: true });
+    playingAudio.addEventListener('error', clearPlayingAudio, { once: true });
+    try {
+        await playingAudio.play();
+    } catch (error) {
+        clearPlayingAudio();
+        throw error;
+    }
+}
+
+function clearPlayingAudio() {
+    if (playingAudioUrl !== null) {
+        globalThis.URL.revokeObjectURL(playingAudioUrl);
+    }
+    playingAudio = null;
+    playingAudioUrl = null;
 }
