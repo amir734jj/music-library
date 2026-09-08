@@ -51,9 +51,9 @@ public sealed partial class MainView : UserControl
         InitializeComponent();
         AuthenticationView.Authenticated += AuthenticationView_Authenticated;
         MusicLibraryApi.SessionInvalidated += MusicLibraryApi_SessionInvalidated;
-        AuthenticationView.IsVisible = IsBrowserHost;
-        ApplicationView.IsVisible = !IsBrowserHost;
-        SignOutButton.IsVisible = IsBrowserHost;
+        AuthenticationView.IsVisible = true;
+        ApplicationView.IsVisible = false;
+        SignOutButton.IsVisible = true;
     }
 
     protected override async void OnAttachedToVisualTree(Avalonia.VisualTreeAttachmentEventArgs eventArgs)
@@ -69,7 +69,7 @@ public sealed partial class MainView : UserControl
         try
         {
             ApiConnectionStatus.Text = await MusicLibraryApi.IsHealthyAsync() ? "API connected" : "API unavailable";
-            if (IsBrowserHost && await MusicLibraryApi.RestoreSessionAsync() is { } restoredUser)
+            if (await MusicLibraryApi.RestoreSessionAsync() is { } restoredUser)
             {
                 ShowAuthenticatedApplication(restoredUser);
                 _ = LoadNowPlayingAsync();
