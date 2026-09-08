@@ -708,33 +708,38 @@ public sealed partial class MainView : UserControl
         Grid.SetColumn(lastObserved, 2);
         Grid.SetRow(lastObserved, 1);
         row.Children.Add(lastObserved);
+        var actions = new StackPanel
+        {
+            Spacing = 4,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+        };
+        var cachedUntilText = trend.CachedUntil?.LocalDateTime.ToString("g");
+        var playButton = new Button
+        {
+            Content = "Play",
+            IsEnabled = trend.CachedTrackId is not null
+        };
+        ToolTip.SetTip(playButton, cachedUntilText is not null
+            ? $"Play cached recording (available until {cachedUntilText})"
+            : "Recording is not ready yet");
+        var downloadButton = new Button
+        {
+            Content = "Download",
+            IsEnabled = trend.CachedTrackId is not null
+        };
+        ToolTip.SetTip(downloadButton, cachedUntilText is not null
+            ? $"Download cached recording (available until {cachedUntilText})"
+            : "Recording is not ready yet");
         if (trend.CachedTrackId is { } cachedTrackId)
         {
-            var actions = new StackPanel
-            {
-                Spacing = 4,
-                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
-            };
-            var cachedUntilText = trend.CachedUntil?.LocalDateTime.ToString("g");
-            var playButton = new Button { Content = "Play" };
-            ToolTip.SetTip(playButton, cachedUntilText is not null
-                ? $"Play cached recording (available until {cachedUntilText})"
-                : "Play cached recording");
             playButton.Click += async (_, _) => await PlayTrendingTrackAsync(cachedTrackId, playButton);
-            actions.Children.Add(playButton);
-            var downloadButton = new Button
-            {
-                Content = "Download"
-            };
-            ToolTip.SetTip(downloadButton, trend.CachedUntil is { } downloadCachedUntil
-                ? $"Cached until {downloadCachedUntil.LocalDateTime:g}"
-                : "Download cached recording");
             downloadButton.Click += async (_, _) => await DownloadTrendingTrackAsync(cachedTrackId, downloadButton);
-            actions.Children.Add(downloadButton);
-            Grid.SetColumn(actions, 4);
-            Grid.SetRowSpan(actions, 2);
-            row.Children.Add(actions);
         }
+        actions.Children.Add(playButton);
+        actions.Children.Add(downloadButton);
+        Grid.SetColumn(actions, 4);
+        Grid.SetRowSpan(actions, 2);
+        row.Children.Add(actions);
         return row;
     }
 
