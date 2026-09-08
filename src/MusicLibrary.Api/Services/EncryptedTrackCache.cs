@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Threading.Channels;
 using EfCoreRepository.Interfaces;
 using MusicLibrary.Api.Data;
+using MusicLibrary.Contracts;
 using StreamRipper.Interfaces;
 using StreamRipper.Models;
 
