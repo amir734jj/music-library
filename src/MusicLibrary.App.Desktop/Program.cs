@@ -1,6 +1,6 @@
 using Avalonia;
-using System.Diagnostics;
 using MusicLibrary.App.Services;
+using Serilog;
 using Velopack;
 
 namespace MusicLibrary.App.Desktop;
@@ -10,43 +10,65 @@ internal static class Program
     [STAThread]
     public static void Main(string[] args)
     {
-        VelopackApp.Build().Run();
         MusicLibraryApi.Configure(new Uri("https://music-library.coolify.hesamian.com/"));
-        AuthenticationSessionStorage.Load = DesktopAuthenticationSessionStorage.Load;
-        AuthenticationSessionStorage.Save = DesktopAuthenticationSessionStorage.Save;
-        var offlineDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyMusic), "Music Library");
-        NativeRadioActions.SupportsStreamRecorder = true;
-        NativeRadioActions.ListenAsync = streamUri =>
+        AppLogging.ConfigureFromApiAsync("desktop").GetAwaiter().GetResult();
+        AppDomain.CurrentDomain.UnhandledException += (_, eventArgs) =>
+            Log.Fatal(eventArgs.ExceptionObject as Exception, "Unhandled desktop application exception");
+        TaskScheduler.UnobservedTaskException += (_, eventArgs) =>
         {
-            Process.Start(new ProcessStartInfo(streamUri.AbsoluteUri) { UseShellExecute = true });
-            return Task.CompletedTask;
+            Log.Error(eventArgs.Exception, "Unobserved desktop task exception");
+            eventArgs.SetObserved();
         };
-        NativeRadioActions.DownloadAsync = (streamUri, duration) => NativeStreamDownloader.DownloadAsync(streamUri,
-            offlineDirectory, duration);
-        NativeRadioActions.PlayFileAsync = async (content, _, fileName) =>
+
+        try
         {
-            var directory = Path.Combine(Path.GetTempPath(), "Music Library");
-            Directory.CreateDirectory(directory);
-            var temporaryPath = Path.Combine(directory, $"{Guid.NewGuid():N}{Path.GetExtension(Path.GetFileName(fileName))}");
-            await File.WriteAllBytesAsync(temporaryPath, content);
-            Process.Start(new ProcessStartInfo(temporaryPath) { UseShellExecute = true });
-        };
-        NativeRadioActions.PlayFileToCompletionAsync = DesktopTrackPlayer.PlayToCompletionAsync;
-        NativeRadioActions.SaveFileAsync = (content, _, fileName) =>
-            NativeStreamDownloader.SaveAsync(content, fileName, offlineDirectory);
-        NativeRadioActions.ListOfflineTracksAsync = () => ListOfflineTracksAsync(offlineDirectory);
-        NativeRadioActions.PlayOfflineTrackAsync = key =>
+            Log.Information("Starting Music Library desktop application");
+            VelopackApp.Build().Run();
+            AuthenticationSessionStorage.Load = DesktopAuthenticationSessionStorage.Load;
+            AuthenticationSessionStorage.Save = DesktopAuthenticationSessionStorage.Save;
+            var offlineDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyMusic), "Music Library");
+            NativeRadioActions.SupportsStreamRecorder = true;
+            NativeRadioActions.ListenAsync = streamUri =>
+            {
+                Process.Start(new ProcessStartInfo(streamUri.AbsoluteUri) { UseShellExecute = true });
+                return Task.CompletedTask;
+            };
+            NativeRadioActions.DownloadAsync = (streamUri, duration) => NativeStreamDownloader.DownloadAsync(streamUri,
+                offlineDirectory, duration);
+            NativeRadioActions.PlayFileAsync = async (content, _, fileName) =>
+            {
+                var directory = Path.Combine(Path.GetTempPath(), "Music Library");
+                Directory.CreateDirectory(directory);
+                var temporaryPath = Path.Combine(directory, $"{Guid.NewGuid():N}{Path.GetExtension(Path.GetFileName(fileName))}");
+                await File.WriteAllBytesAsync(temporaryPath, content);
+                Process.Start(new ProcessStartInfo(temporaryPath) { UseShellExecute = true });
+            };
+            NativeRadioActions.PlayFileToCompletionAsync = DesktopTrackPlayer.PlayToCompletionAsync;
+            NativeRadioActions.SaveFileAsync = (content, _, fileName) =>
+                NativeStreamDownloader.SaveAsync(content, fileName, offlineDirectory);
+            NativeRadioActions.ListOfflineTracksAsync = () => ListOfflineTracksAsync(offlineDirectory);
+            NativeRadioActions.PlayOfflineTrackAsync = key =>
+            {
+                Process.Start(new ProcessStartInfo(ResolveOfflineTrackPath(offlineDirectory, key)) { UseShellExecute = true });
+                return Task.CompletedTask;
+            };
+            NativeRadioActions.DeleteOfflineTrackAsync = key =>
+            {
+                File.Delete(ResolveOfflineTrackPath(offlineDirectory, key));
+                return Task.CompletedTask;
+            };
+            _ = Task.Run(UpdateDesktopAppAsync);
+            BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+        }
+        catch (Exception exception)
         {
-            Process.Start(new ProcessStartInfo(ResolveOfflineTrackPath(offlineDirectory, key)) { UseShellExecute = true });
-            return Task.CompletedTask;
-        };
-        NativeRadioActions.DeleteOfflineTrackAsync = key =>
+            Log.Fatal(exception, "Desktop application terminated unexpectedly");
+            throw;
+        }
+        finally
         {
-            File.Delete(ResolveOfflineTrackPath(offlineDirectory, key));
-            return Task.CompletedTask;
-        };
-        _ = Task.Run(UpdateDesktopAppAsync);
-        BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+            Log.CloseAndFlush();
+        }
     }
 
     private static Task<IReadOnlyList<OfflineTrack>> ListOfflineTracksAsync(string directory)
@@ -95,7 +117,7 @@ internal static class Program
         }
         catch (Exception exception)
         {
-            Debug.WriteLine($"Desktop update check failed: {exception}");
+            Log.Warning(exception, "Desktop update check failed");
         }
     }
 

@@ -2,6 +2,7 @@ using Android.Content;
 using Android.Content.PM;
 using Avalonia.Android;
 using MusicLibrary.App.Services;
+using Serilog;
 
 [assembly: UsesPermission(global::Android.Manifest.Permission.Internet)]
 
@@ -18,7 +19,6 @@ public sealed class MainActivity : AvaloniaMainActivity
 
     protected override void OnCreate(Bundle? savedInstanceState)
     {
-        MusicLibraryApi.Configure(new Uri("https://music-library.coolify.hesamian.com/"));
         var authenticationPreferences = GetSharedPreferences("authentication", FileCreationMode.Private);
         AuthenticationSessionStorage.Load = () => authenticationPreferences?.GetString("session", null);
         AuthenticationSessionStorage.Save = value =>
@@ -106,6 +106,7 @@ public sealed class MainActivity : AvaloniaMainActivity
 
     protected override void OnDestroy()
     {
+        Log.Information("Stopping Music Library Android activity");
         ReleaseCachedTrackPlayer();
         base.OnDestroy();
     }

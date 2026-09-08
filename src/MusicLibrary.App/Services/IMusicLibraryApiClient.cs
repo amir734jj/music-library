@@ -9,6 +9,9 @@ public interface IMusicLibraryApiClient
     [Get("/api/health")]
     Task<IApiResponse> GetHealthAsync(CancellationToken cancellationToken = default);
 
+    [Get("/api/client-logging")]
+    Task<ApiResponse<ClientLoggingConfiguration>> GetClientLoggingConfigurationAsync(CancellationToken cancellationToken = default);
+
     [Post("/api/auth/register")]
     Task<ApiResponse<AuthenticationResult>> RegisterAsync([Body] RegisterRequest request, CancellationToken cancellationToken = default);
 

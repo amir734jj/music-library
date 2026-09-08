@@ -60,6 +60,15 @@ public static class MusicLibraryApi
         return response.IsSuccessful;
     }
 
+    public static async Task<ClientLoggingConfiguration> GetClientLoggingConfigurationAsync(
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await Client.GetClientLoggingConfigurationAsync(cancellationToken);
+        EnsureSuccess(response);
+        return response.Content
+            ?? throw new HttpRequestException("The API returned an unexpected client logging response.");
+    }
+
     public static async Task<RegistrationAuthenticationResult> RegisterAsync(RegisterRequest request, CancellationToken cancellationToken = default)
     {
         using var response = await Client.RegisterAsync(request, cancellationToken);

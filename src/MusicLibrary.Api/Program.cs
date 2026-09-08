@@ -20,12 +20,17 @@ using Serilog;
 using StreamRipper.Extensions;
 
 var builder = WebApplication.CreateBuilder(args);
+var betterStackToken = builder.Configuration["BetterStack:SourceToken"]
+    ?? throw new InvalidOperationException("BetterStack:SourceToken is required.");
+var betterStackHost = builder.Configuration["BetterStack:IngestingHost"]
+    ?? throw new InvalidOperationException("BetterStack:IngestingHost is required.");
 builder.Host.UseSerilog((context, services, configuration) => configuration
     .ReadFrom.Configuration(context.Configuration)
     .ReadFrom.Services(services)
     .Enrich.FromLogContext()
     .Enrich.WithProperty("Application", "music-library-api")
-    .WriteTo.Console());
+    .WriteTo.Console()
+    .WriteTo.Sink(new BetterStackSink(new Uri($"https://{betterStackHost.TrimEnd('/')}/"), betterStackToken)));
 var databaseUrl = builder.Configuration["DATABASE_URL"] ?? throw new InvalidOperationException("DATABASE_URL is required.");
 var connectionString = DatabaseUrlConverter.ToConnectionString(databaseUrl);
 var jwtKey = builder.Configuration["Jwt:Key"] ?? throw new InvalidOperationException("Jwt:Key is required.");
