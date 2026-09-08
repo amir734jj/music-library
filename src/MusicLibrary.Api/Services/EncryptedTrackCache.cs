@@ -158,7 +158,7 @@ public sealed class TrackCacheStorage
         if (cacheBytes + incomingBytes <= maximumCacheBytes) return true;
 
         var tracks = repository.For<CachedTrack>();
-        var metadata = (await tracks.GetAll(maxResults: 100000)).ToDictionary(
+        var metadata = (await tracks.GetAll<CachedTrack>(maxResults: 100000)).ToDictionary(
             track => Path.GetFullPath(track.FilePath),
             track => track.Id,
             OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
@@ -183,7 +183,7 @@ public sealed class TrackCacheStorage
     {
         var now = DateTimeOffset.UtcNow;
         var tracks = repository.For<CachedTrack>();
-        var expired = await tracks.GetAll(filterExprs: [track => track.ExpiresAt <= now], maxResults: 1000);
+        var expired = await tracks.GetAll<CachedTrack>(filterExprs: [track => track.ExpiresAt <= now], maxResults: 1000);
         foreach (var track in expired)
         {
             File.Delete(track.FilePath);
@@ -248,7 +248,7 @@ public sealed class EncryptedTrackCacheWorker(
         var normalizedArtist = request.Artist.Trim().ToUpperInvariant();
         var normalizedTitle = request.Title?.Trim().ToUpperInvariant() ?? string.Empty;
         var cachedTracks = repository.For<CachedTrack>();
-        var matchingTracks = (await cachedTracks.GetAll(filterExprs: [
+        var matchingTracks = (await cachedTracks.GetAll<CachedTrack>(filterExprs: [
             track => track.NormalizedArtist == normalizedArtist
                 && track.NormalizedTitle == normalizedTitle
                 && track.ExpiresAt > DateTimeOffset.UtcNow])).ToList();

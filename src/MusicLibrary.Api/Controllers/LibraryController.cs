@@ -70,7 +70,7 @@ public sealed class LibraryController(
         if (TrackCacheCryptography.TryGetKey(config.TrendingCacheEncryptionKey, out var cacheKey))
         {
             var keyFingerprint = TrackCacheCryptography.GetFingerprint(cacheKey);
-            cachedTracks = await repository.For<CachedTrack>().GetAll(
+            cachedTracks = await repository.For<CachedTrack>().GetAll<CachedTrack>(
                 filterExprs: [track => track.ExpiresAt > DateTimeOffset.UtcNow
                     && track.KeyFingerprint == keyFingerprint],
                 orderBy: Ordering<CachedTrack>.Desc(track => track.CreatedAt),
