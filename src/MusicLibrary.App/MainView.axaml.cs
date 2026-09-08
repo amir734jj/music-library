@@ -32,6 +32,9 @@ public sealed partial class MainView : UserControl
     private IReadOnlyCollection<NowPlayingSummary> _nowPlayingSnapshot = [];
     private IReadOnlyCollection<ArtistSubscriptionSummary> _followingSnapshot = [];
     private IReadOnlyCollection<TrendingSummary> _trendingSnapshot = [];
+    private Guid? _playingCachedTrackId;
+    private Button? _playingCachedTrackButton;
+    private bool _isCachedTrackPlaying;
     private bool _subscriptionsLoaded;
     private bool? _isCompactLayout;
 
@@ -710,13 +713,17 @@ public sealed partial class MainView : UserControl
         row.Children.Add(lastObserved);
         var actions = new StackPanel
         {
+            Orientation = Avalonia.Layout.Orientation.Horizontal,
             Spacing = 4,
             VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
         };
         var cachedUntilText = trend.CachedUntil?.LocalDateTime.ToString("g");
         var playButton = new Button
         {
-            Content = "Play",
+            Content = "\u25B6",
+            Width = 36,
+            Height = 32,
+            FontSize = 15,
             IsEnabled = trend.CachedTrackId is not null
         };
         ToolTip.SetTip(playButton, cachedUntilText is not null
@@ -724,7 +731,10 @@ public sealed partial class MainView : UserControl
             : "Recording is not ready yet");
         var downloadButton = new Button
         {
-            Content = "Download",
+            Content = "\u2B07",
+            Width = 36,
+            Height = 32,
+            FontSize = 15,
             IsEnabled = trend.CachedTrackId is not null
         };
         ToolTip.SetTip(downloadButton, cachedUntilText is not null
@@ -732,6 +742,11 @@ public sealed partial class MainView : UserControl
             : "Recording is not ready yet");
         if (trend.CachedTrackId is { } cachedTrackId)
         {
+            if (_playingCachedTrackId == cachedTrackId && NativeRadioActions.ToggleFilePlaybackAsync is not null)
+            {
+                _playingCachedTrackButton = playButton;
+                SetPlaybackButtonState(playButton, _isCachedTrackPlaying);
+            }
             playButton.Click += async (_, _) => await PlayTrendingTrackAsync(cachedTrackId, playButton);
             downloadButton.Click += async (_, _) => await DownloadTrendingTrackAsync(cachedTrackId, downloadButton);
         }
@@ -752,11 +767,31 @@ public sealed partial class MainView : UserControl
         }
 
         playButton.IsEnabled = false;
-        NowPlayingStatus.Text = "Preparing encrypted recording...";
         try
         {
+            if (_playingCachedTrackId == cachedTrackId && NativeRadioActions.ToggleFilePlaybackAsync is not null)
+            {
+                var playbackState = await NativeRadioActions.ToggleFilePlaybackAsync();
+                if (playbackState >= 0)
+                {
+                    _isCachedTrackPlaying = playbackState == 1;
+                    SetPlaybackButtonState(playButton, _isCachedTrackPlaying);
+                    NowPlayingStatus.Text = _isCachedTrackPlaying ? "Playback resumed." : "Playback paused.";
+                    return;
+                }
+            }
+
+            NowPlayingStatus.Text = "Preparing encrypted recording...";
             var download = await MusicLibraryApi.DownloadTrendingTrackAsync(cachedTrackId);
             await NativeRadioActions.PlayFileAsync(download.Content, download.ContentType, download.FileName);
+            if (_playingCachedTrackButton is not null && _playingCachedTrackButton != playButton)
+            {
+                SetPlaybackButtonState(_playingCachedTrackButton, false);
+            }
+            _playingCachedTrackId = cachedTrackId;
+            _playingCachedTrackButton = playButton;
+            _isCachedTrackPlaying = NativeRadioActions.ToggleFilePlaybackAsync is not null;
+            SetPlaybackButtonState(playButton, _isCachedTrackPlaying);
             NowPlayingStatus.Text = $"Playing {download.FileName}";
         }
         catch (Exception exception)
@@ -767,6 +802,12 @@ public sealed partial class MainView : UserControl
         {
             playButton.IsEnabled = true;
         }
+    }
+
+    private static void SetPlaybackButtonState(Button button, bool isPlaying)
+    {
+        button.Content = isPlaying ? "\u23F8" : "\u25B6";
+        ToolTip.SetTip(button, isPlaying ? "Pause cached recording" : "Play cached recording");
     }
 
     private async Task DownloadTrendingTrackAsync(Guid cachedTrackId, Button downloadButton)

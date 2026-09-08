@@ -27,6 +27,8 @@ COPY --from=build /publish/browser/wwwroot/ ./wwwroot/
 
 EXPOSE 8080
 ENV ASPNETCORE_URLS=http://+:8080
+ENV TRENDING_CACHE_DIRECTORY=/data/trending-cache
+VOLUME ["/data"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD curl --fail --silent http://127.0.0.1:8080/api/health || exit 1
 ENTRYPOINT ["dotnet", "MusicLibrary.Api.dll"]

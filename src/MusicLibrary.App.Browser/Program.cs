@@ -14,6 +14,7 @@ internal static class Program
         AuthenticationSessionStorage.Save = BrowserAuthenticationSessionStorage.Save;
         NativeRadioActions.PlayFileAsync =
             (content, contentType, _) => BrowserAuthenticationSessionStorage.PlayFileAsync(content, contentType);
+        NativeRadioActions.ToggleFilePlaybackAsync = BrowserAuthenticationSessionStorage.ToggleFilePlaybackAsync;
         NativeRadioActions.SaveFileAsync = (content, contentType, fileName) =>
         {
             BrowserAuthenticationSessionStorage.DownloadFile(content, contentType, fileName);

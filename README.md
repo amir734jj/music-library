@@ -71,6 +71,8 @@ docker run --rm --publish 8080:8080 music-library-web
 
 Supply database and JWT configuration with environment variables in every environment. `DATABASE_URL` is required and must use standard `postgresql://username:password@host:5432/database?sslmode=require` form; the API converts it to an Npgsql connection string at startup. Also configure `Jwt__Key`.
 
+The container stores encrypted Trending recordings under `/data/trending-cache`. In Coolify, add persistent storage with destination `/data` so recordings survive deployments. Database rows cannot restore recordings lost before this mount is configured; those tracks become available again after a station reports the song and a new boundary-complete capture succeeds.
+
 ## Native API endpoint
 
 The desktop and Android hosts use `https://music-library.coolify.hesamian.com/` as their API base URL. On startup, each native app requests `GET /api/health` and displays whether the deployed API is available. Subsequent authenticated API calls use the shared `MusicLibraryApi` client.

@@ -17,4 +17,7 @@ internal static partial class BrowserAuthenticationSessionStorage
 
     [JSImport("playFile", ModuleName)]
     internal static partial Task PlayFileAsync(byte[] content, string contentType);
+
+    [JSImport("toggleFilePlayback", ModuleName)]
+    internal static partial Task<int> ToggleFilePlaybackAsync();
 }

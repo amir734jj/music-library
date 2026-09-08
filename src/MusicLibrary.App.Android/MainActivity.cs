@@ -52,6 +52,18 @@ public sealed class MainActivity : AvaloniaMainActivity
                 throw;
             }
         };
+        NativeRadioActions.ToggleFilePlaybackAsync = () =>
+        {
+            if (_cachedTrackPlayer is null) return Task.FromResult(-1);
+            if (_cachedTrackPlayer.IsPlaying)
+            {
+                _cachedTrackPlayer.Pause();
+                return Task.FromResult(0);
+            }
+
+            _cachedTrackPlayer.Start();
+            return Task.FromResult(1);
+        };
         NativeRadioActions.SaveFileAsync = (content, _, fileName) =>
         {
             var directory = GetExternalFilesDir(global::Android.OS.Environment.DirectoryMusic)?.AbsolutePath ?? FilesDir!.AbsolutePath;

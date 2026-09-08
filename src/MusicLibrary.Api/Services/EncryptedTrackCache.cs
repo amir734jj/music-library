@@ -87,11 +87,12 @@ public sealed class EncryptedTrackCacheService(
     };
 }
 
-public sealed class TrackCacheStorage
+public sealed class TrackCacheStorage(IConfiguration configuration)
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
 
-    public string CacheDirectory { get; } = Path.Combine(Path.GetTempPath(), "music-library-trending-cache");
+    public string CacheDirectory { get; } = configuration["TRENDING_CACHE_DIRECTORY"]
+        ?? Path.Combine(Path.GetTempPath(), "music-library-trending-cache");
 
     public async Task<bool> TrySaveAsync(
         IEfRepository repository,
