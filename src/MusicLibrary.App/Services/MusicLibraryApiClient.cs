@@ -74,7 +74,7 @@ public interface IMusicLibraryApiClient
 
 public static class MusicLibraryApi
 {
-    private static readonly Newtonsoft.Json.JsonSerializerSettings SerializerSettings = new()
+    private static readonly JsonSerializerSettings SerializerSettings = new()
     {
         ContractResolver = new CamelCasePropertyNamesContractResolver(),
         Converters = { new StringEnumConverter() }

@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using EfCoreRepository.Interfaces;
 using EfCoreRepository.Models;
 using MusicLibrary.Api.Data;
@@ -20,10 +21,10 @@ public sealed class LibraryController(
     public async Task<IReadOnlyCollection<NowPlayingSummary>> NowPlaying([FromQuery] string? query)
     {
         var filters = string.IsNullOrWhiteSpace(query)
-            ? new[] { (System.Linq.Expressions.Expression<Func<Station, bool>>)(station => station.LastMetadataAt != null) }
+            ? new[] { (Expression<Func<Station, bool>>)(station => station.LastMetadataAt != null) }
             : new[]
             {
-                (System.Linq.Expressions.Expression<Func<Station, bool>>)(station => station.LastMetadataAt != null),
+                (Expression<Func<Station, bool>>)(station => station.LastMetadataAt != null),
                 Filter<Station>.LikeAny(
                     $"%{query.Trim().ToLowerInvariant()}%",
                     station => station.CurrentArtist!.ToLower(),
@@ -50,10 +51,10 @@ public sealed class LibraryController(
     {
         var cutoff = DateTimeOffset.UtcNow.AddHours(-24);
         var filters = string.IsNullOrWhiteSpace(query)
-            ? new[] { (System.Linq.Expressions.Expression<Func<PlayObservation, bool>>)(play => play.ObservedAt >= cutoff && play.Artist != null) }
+            ? new[] { (Expression<Func<PlayObservation, bool>>)(play => play.ObservedAt >= cutoff && play.Artist != null) }
             : new[]
             {
-                (System.Linq.Expressions.Expression<Func<PlayObservation, bool>>)(play => play.ObservedAt >= cutoff && play.Artist != null),
+                (Expression<Func<PlayObservation, bool>>)(play => play.ObservedAt >= cutoff && play.Artist != null),
                 Filter<PlayObservation>.LikeAny(
                     $"%{query.Trim().ToLowerInvariant()}%",
                     play => play.Artist!.ToLower(),
@@ -148,7 +149,7 @@ public sealed class LibraryController(
         var subscriptions = repository.For<ArtistSubscription>();
         var filters = new[]
         {
-            (System.Linq.Expressions.Expression<Func<ArtistSubscription, bool>>)(subscription =>
+            (Expression<Func<ArtistSubscription, bool>>)(subscription =>
                 subscription.Id == id && subscription.UserId == CurrentUserId)
         };
         if (!await subscriptions.Any(filters)) return NotFound();

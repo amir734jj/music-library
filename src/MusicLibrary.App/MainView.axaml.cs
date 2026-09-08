@@ -725,8 +725,8 @@ public sealed partial class MainView : UserControl
             {
                 Content = "Download"
             };
-            ToolTip.SetTip(downloadButton, trend.CachedUntil is { } cachedUntil
-                ? $"Cached until {cachedUntil.LocalDateTime:g}"
+            ToolTip.SetTip(downloadButton, trend.CachedUntil is { } downloadCachedUntil
+                ? $"Cached until {downloadCachedUntil.LocalDateTime:g}"
                 : "Download cached recording");
             downloadButton.Click += async (_, _) => await DownloadTrendingTrackAsync(cachedTrackId, downloadButton);
             actions.Children.Add(downloadButton);
