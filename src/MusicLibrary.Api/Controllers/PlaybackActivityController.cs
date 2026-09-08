@@ -15,6 +15,7 @@ public sealed class PlaybackActivityController(IEfRepository repository) : Music
 {
     private static readonly TimeSpan ActivityLifetime = TimeSpan.FromSeconds(90);
 
+    [AllowAnonymous]
     [HttpGet]
     public async Task<IReadOnlyCollection<UserPlaybackActivitySummary>> GetActive()
     {

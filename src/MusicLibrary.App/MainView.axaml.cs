@@ -61,6 +61,7 @@ public sealed partial class MainView : UserControl
     private bool _playbackActivityIsLiveStation;
     private bool _isPlaybackActivityActive;
     private bool _subscriptionsLoaded;
+    private bool _isGuest;
     private bool? _isCompactLayout;
 
     public bool IsBrowserHost { get; }
@@ -79,6 +80,7 @@ public sealed partial class MainView : UserControl
         IsBrowserHost = showAdministration;
         InitializeComponent();
         AuthenticationView.Authenticated += AuthenticationView_Authenticated;
+        AuthenticationView.GuestRequested += AuthenticationView_GuestRequested;
         AuthenticationView.OfflineRequested += AuthenticationView_OfflineRequested;
         MusicLibraryApi.SessionInvalidated += MusicLibraryApi_SessionInvalidated;
         OfflineNavigationButton.IsVisible = ShowOfflineMode;
@@ -197,12 +199,31 @@ public sealed partial class MainView : UserControl
 
     private void AuthenticationView_Authenticated(object? sender, AuthenticatedEventArgs eventArgs)
     {
+        _isGuest = false;
         ShowAuthenticatedApplication(eventArgs.User);
+        _ = LoadNowPlayingAsync();
+    }
+
+    private void AuthenticationView_GuestRequested(object? sender, EventArgs eventArgs)
+    {
+        _isGuest = true;
+        _subscribedArtists.Clear();
+        _subscriptionsLoaded = false;
+        AuthenticationView.IsVisible = false;
+        ApplicationView.IsVisible = true;
+        SignOutButton.Content = "Sign in";
+        CurrentUserStatus.Text = "Guest";
+        AdministrationSeparator.IsVisible = false;
+        AdministrationButton.IsVisible = false;
+        SetOnlineNavigationVisibility(true, canFollow: false);
+        SetLibraryMode(LibraryMode.NowPlaying);
+        ShowLibrary();
         _ = LoadNowPlayingAsync();
     }
 
     private void AuthenticationView_OfflineRequested(object? sender, EventArgs eventArgs)
     {
+        _isGuest = false;
         AuthenticationView.IsVisible = false;
         ApplicationView.IsVisible = true;
         CurrentUserStatus.Text = "Offline";
@@ -219,6 +240,7 @@ public sealed partial class MainView : UserControl
 
     private void ShowAuthenticatedApplication(UserSummary user)
     {
+        _isGuest = false;
         _subscribedArtists.Clear();
         _subscriptionsLoaded = false;
         AuthenticationView.IsVisible = false;
@@ -229,17 +251,17 @@ public sealed partial class MainView : UserControl
         var isAdmin = user.Roles.Contains(Roles.Admin);
         AdministrationSeparator.IsVisible = isAdmin;
         AdministrationButton.IsVisible = isAdmin;
-        SetOnlineNavigationVisibility(true);
+        SetOnlineNavigationVisibility(true, canFollow: true);
         SetLibraryMode(LibraryMode.NowPlaying);
         ShowLibrary();
         ScheduleSessionExpiry();
     }
 
-    private void SetOnlineNavigationVisibility(bool isVisible)
+    private void SetOnlineNavigationVisibility(bool isVisible, bool canFollow = false)
     {
         NowPlayingNavigationButton.IsVisible = isVisible;
         StationsNavigationButton.IsVisible = isVisible;
-        FollowingNavigationButton.IsVisible = isVisible;
+        FollowingNavigationButton.IsVisible = isVisible && canFollow;
         TrendingNavigationButton.IsVisible = isVisible;
         UserBoardNavigationButton.IsVisible = isVisible;
     }
@@ -264,6 +286,7 @@ public sealed partial class MainView : UserControl
         _probeStatusPollingCancellation?.Cancel();
         _sessionExpiryCancellation?.Cancel();
         StopPublishingPlaybackActivity();
+        _isGuest = false;
         MusicLibraryApi.SignOut();
         ApplicationView.IsVisible = false;
         AuthenticationView.IsVisible = true;
@@ -446,7 +469,7 @@ public sealed partial class MainView : UserControl
     private void StartNowPlayingPolling()
     {
         _libraryPollingCancellation?.Cancel();
-        if (!MusicLibraryApi.IsAuthenticated) return;
+        if (!MusicLibraryApi.IsAuthenticated && !_isGuest) return;
 
         var cancellation = _libraryPollingCancellation = new CancellationTokenSource();
         _ = PollNowPlayingAsync(cancellation.Token);
@@ -863,7 +886,7 @@ public sealed partial class MainView : UserControl
             }
             try
             {
-                await EnsureSubscriptionsLoadedAsync(cancellationToken);
+                if (MusicLibraryApi.IsAuthenticated) await EnsureSubscriptionsLoadedAsync(cancellationToken);
                 var observations = await MusicLibraryApi.GetNowPlayingAsync(query, cancellationToken);
                 if (_libraryMode != LibraryMode.NowPlaying) return;
                 var hasChanges = !_nowPlayingSnapshot.SequenceEqual(observations);
@@ -958,7 +981,7 @@ public sealed partial class MainView : UserControl
             row.Children.Add(listenButton);
         }
 
-        if (!string.IsNullOrWhiteSpace(observation.Artist))
+        if (MusicLibraryApi.IsAuthenticated && !string.IsNullOrWhiteSpace(observation.Artist))
         {
             var artist = observation.Artist.Trim();
             var isSubscribed = _subscribedArtists.Contains(artist);
@@ -1532,6 +1555,7 @@ public sealed partial class MainView : UserControl
 
     private void PublishPlaybackActivity(string description, bool isLiveStation)
     {
+        if (!MusicLibraryApi.IsAuthenticated) return;
         _playbackActivityDescription = description;
         _playbackActivityIsLiveStation = isLiveStation;
         _isPlaybackActivityActive = true;

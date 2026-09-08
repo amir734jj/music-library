@@ -22,25 +22,25 @@ public interface IMusicLibraryApiClient
     Task<ApiResponse<UserSummary>> GetCurrentUserAsync([Authorize] string accessToken, CancellationToken cancellationToken = default);
 
     [Get("/api/now-playing")]
-    Task<ApiResponse<List<NowPlayingSummary>>> GetNowPlayingAsync([Query] string? query, [Authorize] string accessToken, CancellationToken cancellationToken = default);
+    Task<ApiResponse<List<NowPlayingSummary>>> GetNowPlayingAsync([Query] string? query, CancellationToken cancellationToken = default);
 
     [Get("/api/stations")]
-    Task<ApiResponse<List<StationSummary>>> GetStationsAsync([Query] string? query, [Authorize] string accessToken, CancellationToken cancellationToken = default);
+    Task<ApiResponse<List<StationSummary>>> GetStationsAsync([Query] string? query, CancellationToken cancellationToken = default);
 
     [Get("/api/now-playing/{stationId}")]
-    Task<ApiResponse<NowPlayingSummary>> GetNowPlayingStationAsync(Guid stationId, [Authorize] string accessToken, CancellationToken cancellationToken = default);
+    Task<ApiResponse<NowPlayingSummary>> GetNowPlayingStationAsync(Guid stationId, CancellationToken cancellationToken = default);
 
     [Post("/api/now-playing/{stationId}/stream-ticket")]
-    Task<ApiResponse<LiveStreamTicket>> CreateLiveStreamTicketAsync(Guid stationId, [Authorize] string accessToken, CancellationToken cancellationToken = default);
+    Task<ApiResponse<LiveStreamTicket>> CreateLiveStreamTicketAsync(Guid stationId, CancellationToken cancellationToken = default);
 
     [Get("/api/trending")]
-    Task<ApiResponse<List<TrendingSummary>>> GetTrendingAsync([Query] string? query, [Authorize] string accessToken, CancellationToken cancellationToken = default);
+    Task<ApiResponse<List<TrendingSummary>>> GetTrendingAsync([Query] string? query, CancellationToken cancellationToken = default);
 
     [Get("/api/trending/{cachedTrackId}/download")]
-    Task<HttpResponseMessage> DownloadTrendingTrackAsync(Guid cachedTrackId, [Authorize] string accessToken, CancellationToken cancellationToken = default);
+    Task<HttpResponseMessage> DownloadTrendingTrackAsync(Guid cachedTrackId, CancellationToken cancellationToken = default);
 
     [Get("/api/playback-activity")]
-    Task<ApiResponse<List<UserPlaybackActivitySummary>>> GetPlaybackActivitiesAsync([Authorize] string accessToken, CancellationToken cancellationToken = default);
+    Task<ApiResponse<List<UserPlaybackActivitySummary>>> GetPlaybackActivitiesAsync(CancellationToken cancellationToken = default);
 
     [Put("/api/playback-activity")]
     Task<IApiResponse> UpdatePlaybackActivityAsync([Body] UpdatePlaybackActivityRequest request, [Authorize] string accessToken, CancellationToken cancellationToken = default);

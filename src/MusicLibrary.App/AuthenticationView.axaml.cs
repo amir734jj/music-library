@@ -17,6 +17,7 @@ public sealed partial class AuthenticationView : UserControl
     }
 
     public event EventHandler<AuthenticatedEventArgs>? Authenticated;
+    public event EventHandler? GuestRequested;
     public event EventHandler? OfflineRequested;
 
     public void Reset()
@@ -41,6 +42,7 @@ public sealed partial class AuthenticationView : UserControl
     {
         AuthenticationSubmitButton.IsEnabled = false;
         AuthenticationModeButton.IsEnabled = false;
+        GuestButton.IsEnabled = false;
         AuthenticationStatus.Text = _isRegistrationMode ? "Creating account..." : "Signing in...";
         try
         {
@@ -75,6 +77,7 @@ public sealed partial class AuthenticationView : UserControl
         {
             AuthenticationSubmitButton.IsEnabled = true;
             AuthenticationModeButton.IsEnabled = true;
+            GuestButton.IsEnabled = true;
         }
     }
 
@@ -88,6 +91,11 @@ public sealed partial class AuthenticationView : UserControl
         OfflineRequested?.Invoke(this, EventArgs.Empty);
     }
 
+    private void Guest_Click(object? sender, RoutedEventArgs eventArgs)
+    {
+        GuestRequested?.Invoke(this, EventArgs.Empty);
+    }
+
     private void SetAuthenticationMode(bool registration, string? status = null)
     {
         _isRegistrationMode = registration;
@@ -95,6 +103,7 @@ public sealed partial class AuthenticationView : UserControl
         AuthDisplayNameInput.IsVisible = registration;
         AuthPasswordConfirmationInput.IsVisible = registration;
         AuthenticationSubmitButton.Content = registration ? "Register" : "Sign in";
+        GuestButton.IsVisible = !registration;
         AuthenticationModeButton.Content = registration ? "Back to sign in" : "Register";
         AuthenticationStatus.Text = status ?? string.Empty;
         if (!registration)

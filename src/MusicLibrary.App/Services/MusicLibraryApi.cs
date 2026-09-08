@@ -133,8 +133,7 @@ public static class MusicLibraryApi
 
     public static async Task<IReadOnlyCollection<NowPlayingSummary>> GetNowPlayingAsync(string? query = null, CancellationToken cancellationToken = default)
     {
-        if (!IsAuthenticated) throw new InvalidOperationException("An authenticated session is required.");
-        using var response = await Client.GetNowPlayingAsync(query, _authentication!.AccessToken, cancellationToken);
+        using var response = await Client.GetNowPlayingAsync(query, cancellationToken);
         EnsureSuccess(response);
         return GetContent(response);
     }
@@ -143,16 +142,14 @@ public static class MusicLibraryApi
         string? query = null,
         CancellationToken cancellationToken = default)
     {
-        if (!IsAuthenticated) throw new InvalidOperationException("An authenticated session is required.");
-        using var response = await Client.GetStationsAsync(query, _authentication!.AccessToken, cancellationToken);
+        using var response = await Client.GetStationsAsync(query, cancellationToken);
         EnsureSuccess(response);
         return GetContent(response);
     }
 
     public static async Task<NowPlayingSummary?> GetNowPlayingStationAsync(Guid stationId, CancellationToken cancellationToken = default)
     {
-        if (!IsAuthenticated) throw new InvalidOperationException("An authenticated session is required.");
-        using var response = await Client.GetNowPlayingStationAsync(stationId, _authentication!.AccessToken, cancellationToken);
+        using var response = await Client.GetNowPlayingStationAsync(stationId, cancellationToken);
         if (response.StatusCode == System.Net.HttpStatusCode.NotFound) return null;
         EnsureSuccess(response);
         return GetContent(response);
@@ -160,24 +157,21 @@ public static class MusicLibraryApi
 
     public static async Task<Uri> CreateLiveStreamUriAsync(Guid stationId, CancellationToken cancellationToken = default)
     {
-        if (!IsAuthenticated) throw new InvalidOperationException("An authenticated session is required.");
-        using var response = await Client.CreateLiveStreamTicketAsync(stationId, _authentication!.AccessToken, cancellationToken);
+        using var response = await Client.CreateLiveStreamTicketAsync(stationId, cancellationToken);
         EnsureSuccess(response);
         return new Uri(BaseAddress, GetContent(response).Path);
     }
 
     public static async Task<IReadOnlyCollection<TrendingSummary>> GetTrendingAsync(string? query = null, CancellationToken cancellationToken = default)
     {
-        if (!IsAuthenticated) throw new InvalidOperationException("An authenticated session is required.");
-        using var response = await Client.GetTrendingAsync(query, _authentication!.AccessToken, cancellationToken);
+        using var response = await Client.GetTrendingAsync(query, cancellationToken);
         EnsureSuccess(response);
         return GetContent(response);
     }
 
     public static async Task<DownloadedTrack> DownloadTrendingTrackAsync(Guid cachedTrackId, CancellationToken cancellationToken = default)
     {
-        if (!IsAuthenticated) throw new InvalidOperationException("An authenticated session is required.");
-        using var response = await Client.DownloadTrendingTrackAsync(cachedTrackId, _authentication!.AccessToken, cancellationToken);
+        using var response = await Client.DownloadTrendingTrackAsync(cachedTrackId, cancellationToken);
         if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
         {
             SignOut();
@@ -200,8 +194,7 @@ public static class MusicLibraryApi
     public static async Task<IReadOnlyCollection<UserPlaybackActivitySummary>> GetPlaybackActivitiesAsync(
         CancellationToken cancellationToken = default)
     {
-        if (!IsAuthenticated) throw new InvalidOperationException("An authenticated session is required.");
-        using var response = await Client.GetPlaybackActivitiesAsync(_authentication!.AccessToken, cancellationToken);
+        using var response = await Client.GetPlaybackActivitiesAsync(cancellationToken);
         EnsureSuccess(response);
         return GetContent(response);
     }

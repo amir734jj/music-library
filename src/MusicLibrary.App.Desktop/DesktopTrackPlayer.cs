@@ -10,6 +10,7 @@ namespace MusicLibrary.App.Desktop;
 
 internal static class DesktopTrackPlayer
 {
+    private static readonly TimeSpan NetworkInitializationTimeout = TimeSpan.FromSeconds(15);
     private static readonly object PlaybackControlsLock = new();
     private static PlaybackControls? _playbackControls;
 
@@ -111,6 +112,10 @@ internal static class DesktopTrackPlayer
             && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
                 ? new NetworkDataProvider(engine, format, source)
                 : new AssetDataProvider(engine, source);
+        if (provider is NetworkDataProvider networkProvider)
+        {
+            await WaitForNetworkProviderAsync(networkProvider, cancellationToken);
+        }
         using var output = engine.InitializePlaybackDevice(null, format);
         using var player = new SoundPlayer(engine, format, provider);
         var controls = new PlaybackControls(
@@ -142,6 +147,30 @@ internal static class DesktopTrackPlayer
             player.Stop();
             output.Stop();
             output.MasterMixer.RemoveComponent(player);
+        }
+    }
+
+    private static async Task WaitForNetworkProviderAsync(
+        NetworkDataProvider provider,
+        CancellationToken cancellationToken)
+    {
+        using var timeout = new CancellationTokenSource(NetworkInitializationTimeout);
+        using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
+        try
+        {
+            while (provider.FormatInfo is null && !provider.IsDisposed)
+            {
+                await Task.Delay(50, linkedCancellation.Token);
+            }
+        }
+        catch (OperationCanceledException) when (timeout.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException("The station stream did not initialize in time.");
+        }
+
+        if (provider.IsDisposed)
+        {
+            throw new InvalidOperationException("The station stream could not be initialized.");
         }
     }
 

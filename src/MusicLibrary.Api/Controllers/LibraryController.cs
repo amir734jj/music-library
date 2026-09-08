@@ -22,6 +22,7 @@ public sealed class LibraryController(
     LiveStreamTicketStore liveStreamTickets,
     IHttpClientFactory httpClientFactory) : MusicLibraryControllerBase
 {
+    [AllowAnonymous]
     [HttpGet("now-playing")]
     public async Task<IReadOnlyCollection<NowPlayingSummary>> NowPlaying([FromQuery] string? query)
     {
@@ -55,6 +56,7 @@ public sealed class LibraryController(
         ];
     }
 
+    [AllowAnonymous]
     [HttpGet("stations")]
     public async Task<IReadOnlyCollection<StationSummary>> Stations([FromQuery] string? query)
     {
@@ -84,6 +86,7 @@ public sealed class LibraryController(
         ];
     }
 
+    [AllowAnonymous]
     [HttpGet("now-playing/{stationId:guid}")]
     public async Task<ActionResult<NowPlayingSummary>> NowPlayingStation(Guid stationId)
     {
@@ -101,6 +104,7 @@ public sealed class LibraryController(
             station.StreamUrl));
     }
 
+    [AllowAnonymous]
     [HttpPost("now-playing/{stationId:guid}/stream-ticket")]
     public async Task<ActionResult<LiveStreamTicket>> CreateLiveStreamTicket(Guid stationId)
     {
@@ -172,6 +176,7 @@ public sealed class LibraryController(
         }
     }
 
+    [AllowAnonymous]
     [HttpGet("trending")]
     public async Task<IReadOnlyCollection<TrendingSummary>> Trending([FromQuery] string? query, CancellationToken cancellationToken)
     {
@@ -252,6 +257,7 @@ public sealed class LibraryController(
         return Convert.ToInt32(Math.Round(track.PlaintextLength * 8d / track.BitrateKbps.Value));
     }
 
+    [AllowAnonymous]
     [HttpGet("trending/{cachedTrackId:guid}/download")]
     public async Task<IActionResult> DownloadTrendingTrack(Guid cachedTrackId, CancellationToken cancellationToken)
     {
