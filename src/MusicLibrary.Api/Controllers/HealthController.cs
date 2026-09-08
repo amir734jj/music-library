@@ -18,8 +18,8 @@ public sealed class HealthController(IConfiguration configuration) : ControllerB
     {
         var sourceToken = configuration["BetterStack:SourceToken"]
             ?? throw new InvalidOperationException("BetterStack:SourceToken is required.");
-        var ingestingHost = configuration["BetterStack:IngestingHost"]
-            ?? throw new InvalidOperationException("BetterStack:IngestingHost is required.");
-        return Ok(new ClientLoggingConfiguration(sourceToken, ingestingHost));
+        var endpoint = configuration["BetterStack:Endpoint"]
+            ?? throw new InvalidOperationException("BetterStack:Endpoint is required.");
+        return Ok(new ClientLoggingConfiguration(sourceToken, endpoint));
     }
 }
