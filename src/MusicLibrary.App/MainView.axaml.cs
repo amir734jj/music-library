@@ -36,6 +36,8 @@ public sealed partial class MainView : UserControl
     private CancellationTokenSource? _probeSearchCancellation;
     private CancellationTokenSource? _probeStatusPollingCancellation;
     private CancellationTokenSource? _sessionExpiryCancellation;
+    private string? _trendingBatchDownloadStatus;
+    private string? _completedTrendingBatchDownloadStatus;
     private bool _probingEnabled;
     private bool _clearTrendingCacheConfirmed;
     private int _enabledStationCount;
@@ -79,6 +81,7 @@ public sealed partial class MainView : UserControl
         AuthenticationView.Authenticated += AuthenticationView_Authenticated;
         AuthenticationView.OfflineRequested += AuthenticationView_OfflineRequested;
         MusicLibraryApi.SessionInvalidated += MusicLibraryApi_SessionInvalidated;
+        OfflineNavigationButton.IsVisible = ShowOfflineMode;
         AuthenticationView.IsVisible = true;
         ApplicationView.IsVisible = false;
         SignOutButton.IsVisible = true;
@@ -365,7 +368,6 @@ public sealed partial class MainView : UserControl
     {
         _librarySearchCancellation?.Cancel();
         _libraryPollingCancellation?.Cancel();
-        _trendingBatchDownloadCancellation?.Cancel();
         _trendingPlaybackCancellation?.Cancel();
         _libraryMode = mode;
         NowPlayingNavigationButton.Classes.Set("active", mode == LibraryMode.NowPlaying);
@@ -410,6 +412,10 @@ public sealed partial class MainView : UserControl
             _suppressLibrarySearch = false;
         }
         NowPlayingScroll.Offset = default;
+        if (mode == LibraryMode.Trending && _trendingBatchDownloadStatus is not null)
+        {
+            NowPlayingStatus.Text = _trendingBatchDownloadStatus;
+        }
     }
 
     private void ShowLibrary()
@@ -1193,11 +1199,19 @@ public sealed partial class MainView : UserControl
                 }
                 if (_trendingBatchDownloadCancellation is null && _trendingPlaybackCancellation is null)
                 {
-                    NowPlayingStatus.Text = trends.Count == 0
-                        ? (string.IsNullOrWhiteSpace(query) ? "No trends detected in the past 24 hours." : "No matching trends found.")
-                        : hasChanges && !canReplaceRows
-                            ? $"{trends.Count} trend(s) | Rankings updated"
-                            : $"{trends.Count} trend(s) from the past 24 hours | Updated {DateTime.Now:T}";
+                    if (_completedTrendingBatchDownloadStatus is not null)
+                    {
+                        NowPlayingStatus.Text = _completedTrendingBatchDownloadStatus;
+                        _completedTrendingBatchDownloadStatus = null;
+                    }
+                    else
+                    {
+                        NowPlayingStatus.Text = trends.Count == 0
+                            ? (string.IsNullOrWhiteSpace(query) ? "No trends detected in the past 24 hours." : "No matching trends found.")
+                            : hasChanges && !canReplaceRows
+                                ? $"{trends.Count} trend(s) | Rankings updated"
+                                : $"{trends.Count} trend(s) from the past 24 hours | Updated {DateTime.Now:T}";
+                    }
                 }
             }
             catch (OperationCanceledException)
@@ -1699,6 +1713,7 @@ public sealed partial class MainView : UserControl
 
         _trendingBatchDownloadCancellation?.Cancel();
         var cancellation = _trendingBatchDownloadCancellation = new CancellationTokenSource();
+        _completedTrendingBatchDownloadStatus = null;
         DownloadAllTrendingButton.IsEnabled = false;
         PlayAllTrendingButton.IsEnabled = false;
         var downloadedCount = 0;
@@ -1708,7 +1723,7 @@ public sealed partial class MainView : UserControl
             for (var index = 0; index < cachedTrackIds.Count; index++)
             {
                 cancellation.Token.ThrowIfCancellationRequested();
-                NowPlayingStatus.Text = $"Downloading trending recording {index + 1} of {cachedTrackIds.Count}...";
+                SetTrendingBatchDownloadStatus($"Downloading trending recording {index + 1} of {cachedTrackIds.Count}...");
                 try
                 {
                     var download = await MusicLibraryApi.DownloadTrendingTrackAsync(cachedTrackIds[index], cancellation.Token);
@@ -1725,11 +1740,14 @@ public sealed partial class MainView : UserControl
                 }
             }
 
+            _completedTrendingBatchDownloadStatus = failedCount == 0
+                ? $"Downloaded {downloadedCount} trending recording(s)."
+                : $"Downloaded {downloadedCount} trending recording(s); {failedCount} failed or expired.";
+            SetTrendingBatchDownloadStatus(null);
             if (_libraryMode == LibraryMode.Trending && LibraryView.IsVisible)
             {
-                NowPlayingStatus.Text = failedCount == 0
-                    ? $"Downloaded {downloadedCount} trending recording(s)."
-                    : $"Downloaded {downloadedCount} trending recording(s); {failedCount} failed or expired.";
+                NowPlayingStatus.Text = _completedTrendingBatchDownloadStatus;
+                _completedTrendingBatchDownloadStatus = null;
             }
         }
         catch (OperationCanceledException)
@@ -1744,6 +1762,15 @@ public sealed partial class MainView : UserControl
                 PlayAllTrendingButton.IsEnabled = true;
             }
             cancellation.Dispose();
+        }
+    }
+
+    private void SetTrendingBatchDownloadStatus(string? status)
+    {
+        _trendingBatchDownloadStatus = status;
+        if (status is not null && _libraryMode == LibraryMode.Trending && LibraryView.IsVisible)
+        {
+            NowPlayingStatus.Text = status;
         }
     }
 
@@ -1848,7 +1875,6 @@ public sealed partial class MainView : UserControl
     private async void Administration_Click(object? sender, RoutedEventArgs eventArgs)
     {
         _libraryPollingCancellation?.Cancel();
-        _trendingBatchDownloadCancellation?.Cancel();
         _trendingPlaybackCancellation?.Cancel();
         _probeStatusPollingCancellation?.Cancel();
         NowPlayingNavigationButton.Classes.Set("active", false);
@@ -2304,10 +2330,9 @@ public sealed partial class MainView : UserControl
         Grid.SetColumnSpan(details, 2);
         row.Children.Add(details);
 
-        var actions = new StackPanel
+        var actions = new WrapPanel
         {
             Orientation = Avalonia.Layout.Orientation.Horizontal,
-            Spacing = 8,
             VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
         };
         actions.Children.Add(new TextBlock
@@ -2316,7 +2341,11 @@ public sealed partial class MainView : UserControl
             FontWeight = station.IsProbing ? Avalonia.Media.FontWeight.SemiBold : Avalonia.Media.FontWeight.Normal,
             VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
         });
-        var toggleButton = new Button { Content = station.IsProbeEnabled ? "Disable" : "Enable" };
+        var toggleButton = new Button
+        {
+            Content = station.IsProbeEnabled ? "Disable" : "Enable",
+            Margin = new Avalonia.Thickness(8, 0, 0, 8)
+        };
         toggleButton.Click += async (_, _) => await UpdateStationProbeAsync(station);
         actions.Children.Add(toggleButton);
         Grid.SetColumnSpan(actions, 2);
@@ -2363,7 +2392,7 @@ public sealed partial class MainView : UserControl
         var isAdmin = user.Roles.Contains(Roles.Admin);
         var row = new Grid
         {
-            ColumnDefinitions = new ColumnDefinitions("*,Auto"),
+            ColumnDefinitions = new ColumnDefinitions("*"),
             RowDefinitions = new RowDefinitions("Auto,Auto"),
             Margin = new Avalonia.Thickness(0, 0, 0, 8)
         };
@@ -2380,21 +2409,22 @@ public sealed partial class MainView : UserControl
             Opacity = 0.7,
             TextWrapping = Avalonia.Media.TextWrapping.Wrap
         });
-        Grid.SetColumnSpan(identity, 2);
         row.Children.Add(identity);
 
-        var actions = new StackPanel
+        var actions = new WrapPanel
         {
             Orientation = Avalonia.Layout.Orientation.Horizontal,
-            Spacing = 8,
             VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
         };
-        Grid.SetColumnSpan(actions, 2);
         Grid.SetRow(actions, 1);
-        actions.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right;
         actions.Margin = new Avalonia.Thickness(0, 6, 0, 0);
 
-        var activationButton = new Button { Content = user.IsActive ? "Disable" : "Enable", IsEnabled = !isCurrentUser };
+        var activationButton = new Button
+        {
+            Content = user.IsActive ? "Disable" : "Enable",
+            IsEnabled = !isCurrentUser,
+            Margin = new Avalonia.Thickness(0, 0, 8, 8)
+        };
         activationButton.Click += async (_, _) => await UpdateUserAsync(
             user,
             isActive: !user.IsActive,
@@ -2402,7 +2432,12 @@ public sealed partial class MainView : UserControl
             $"{(user.IsActive ? "Disabling" : "Enabling")} {user.DisplayName ?? user.Email}...");
         actions.Children.Add(activationButton);
 
-        var roleButton = new Button { Content = isAdmin ? "Make user" : "Make admin", IsEnabled = !isCurrentUser };
+        var roleButton = new Button
+        {
+            Content = isAdmin ? "Make user" : "Make admin",
+            IsEnabled = !isCurrentUser,
+            Margin = new Avalonia.Thickness(0, 0, 8, 8)
+        };
         roleButton.Click += async (_, _) => await UpdateUserAsync(
             user,
             user.IsActive,
@@ -2410,7 +2445,12 @@ public sealed partial class MainView : UserControl
             $"Updating {user.DisplayName ?? user.Email}'s role...");
         actions.Children.Add(roleButton);
 
-        var deleteButton = new Button { Content = isCurrentUser ? "Current account" : "Delete", IsEnabled = !isCurrentUser };
+        var deleteButton = new Button
+        {
+            Content = isCurrentUser ? "Current account" : "Delete",
+            IsEnabled = !isCurrentUser,
+            Margin = new Avalonia.Thickness(0, 0, 8, 8)
+        };
         var deleteConfirmed = false;
         deleteButton.Click += async (_, _) =>
         {

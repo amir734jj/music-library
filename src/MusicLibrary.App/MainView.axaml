@@ -73,37 +73,37 @@
         <Border Grid.Row="2" Classes="panel">
           <TabControl>
             <TabItem Header="Users">
-              <Grid RowDefinitions="Auto,Auto,*" Margin="0,10,0,0">
-                <TextBlock Text="Manage account access and administrator privileges." Opacity="0.65" TextWrapping="Wrap" />
-                <TextBlock Grid.Row="1" Name="AdministrationStatus" Opacity="0.7" TextWrapping="Wrap" />
-                <ScrollViewer Grid.Row="2" MinHeight="160" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+              <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel Spacing="8" Margin="0,10,0,0">
+                  <TextBlock Text="Manage account access and administrator privileges." Opacity="0.65" TextWrapping="Wrap" />
+                  <TextBlock Name="AdministrationStatus" Opacity="0.7" TextWrapping="Wrap" />
                   <ItemsControl Name="AdminUsersList" />
-                </ScrollViewer>
-              </Grid>
+                </StackPanel>
+              </ScrollViewer>
             </TabItem>
             <TabItem Header="Probing">
-              <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto" Margin="0,10,0,0">
-                <Grid RowDefinitions="Auto,Auto">
+              <ScrollViewer Name="ProbeStationsScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel Spacing="8" Margin="0,10,0,0">
+                  <StackPanel Spacing="8">
                   <TextBlock Text="Shoutcast probes" FontWeight="SemiBold" VerticalAlignment="Center" />
-                  <WrapPanel Grid.Row="1" Orientation="Horizontal" Margin="0,8,0,0">
+                  <WrapPanel Orientation="Horizontal">
                     <Button Name="ImportStationsButton" Content="Import stations" Margin="0,0,8,8" Click="ImportStations_Click" />
                     <Button Name="ProbeWorkerToggleButton" Content="Loading worker..." IsEnabled="False" Margin="0,0,8,8" Click="ToggleProbeWorker_Click" />
                     <Button Name="StationProbesToggleButton" Content="Loading stations..." IsEnabled="False" Margin="0,0,8,8" Click="ToggleAllStationProbes_Click" />
                     <Button Name="RefreshProbeStatusButton" Content="Refresh status" Margin="0,0,0,8" Click="RefreshProbeStatus_Click" />
                   </WrapPanel>
-                </Grid>
-                <TextBlock Grid.Row="1" Text="Current worker activity and station metadata health." Opacity="0.65" TextWrapping="Wrap" />
-                <TextBox Grid.Row="2" Name="ProbeStationSearchInput" PlaceholderText="Search station, genre, or URL" TextChanged="ProbeStationSearchInput_TextChanged" />
-                <TextBlock Grid.Row="3" Name="ProbeStatus" Opacity="0.7" TextWrapping="Wrap" />
-                <ScrollViewer Grid.Row="4" Name="ProbeStationsScroll" MinHeight="160" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                  </StackPanel>
+                  <TextBlock Text="Current worker activity and station metadata health." Opacity="0.65" TextWrapping="Wrap" />
+                  <TextBox Name="ProbeStationSearchInput" PlaceholderText="Search station, genre, or URL" TextChanged="ProbeStationSearchInput_TextChanged" />
+                  <TextBlock Name="ProbeStatus" Opacity="0.7" TextWrapping="Wrap" />
                   <ItemsControl Name="ProbeStationsList" />
-                </ScrollViewer>
-                <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,8,0,0">
-                  <Button Name="PreviousProbePageButton" Content="Previous" Click="PreviousProbePage_Click" />
-                  <TextBlock Name="ProbePageStatus" VerticalAlignment="Center" />
-                  <Button Name="NextProbePageButton" Content="Next" Click="NextProbePage_Click" />
+                  <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+                    <Button Name="PreviousProbePageButton" Content="Previous" Click="PreviousProbePage_Click" />
+                    <TextBlock Name="ProbePageStatus" VerticalAlignment="Center" />
+                    <Button Name="NextProbePageButton" Content="Next" Click="NextProbePage_Click" />
+                  </StackPanel>
                 </StackPanel>
-              </Grid>
+              </ScrollViewer>
             </TabItem>
             <TabItem Header="Global config">
               <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
