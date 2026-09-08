@@ -58,6 +58,8 @@ dotnet build src/MusicLibrary.App.Android/MusicLibrary.App.Android.csproj \
 
 The GitHub Actions workflow in `.github/workflows/application-release.yml` builds a debug-signed Android APK, a self-contained Linux x64 desktop bundle, and a Velopack Windows x64 release on every `master` push. The Windows release includes an installer, a portable bundle, and the feed/package files used for automatic updates. Installed Windows clients silently check the `latest` GitHub release at startup, apply a newer package, and restart. Portable and development builds do not auto-update.
 
+Continuous Trending playback uses the built-in audio backend on Windows and Android. The Linux desktop bundle requires `mpv`, `ffplay`, or VLC (`cvlc`) on `PATH` so it can detect track completion and advance the queue.
+
 After every platform succeeds, the workflow updates the single prerelease tag named `latest` with all downloads. Because the APK is debug-signed (not a persistent release keystore), it installs with Android's "unknown/untrusted developer" warning and updates may require uninstalling the previous build first. The Windows installer is not code-signed, so Windows may show an unknown-publisher warning.
 
 ## Web container

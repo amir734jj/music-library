@@ -1,5 +1,7 @@
 using Avalonia;
 using MusicLibrary.App;
+using NAudio.Wave;
+using System.ComponentModel;
 using System.Diagnostics;
 using Velopack;
 
@@ -29,6 +31,7 @@ internal static class Program
             await File.WriteAllBytesAsync(temporaryPath, content);
             Process.Start(new ProcessStartInfo(temporaryPath) { UseShellExecute = true });
         };
+        NativeRadioActions.PlayFileToCompletionAsync = DesktopTrackPlayer.PlayToCompletionAsync;
         NativeRadioActions.SaveFileAsync = (content, _, fileName) => NativeStreamDownloader.SaveAsync(content, fileName,
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyMusic), "Music Library"));
         _ = Task.Run(UpdateDesktopAppAsync);
@@ -57,6 +60,97 @@ internal static class Program
     public static AppBuilder BuildAvaloniaApp()
     {
         return AppBuilder.Configure<App>().UsePlatformDetect().WithInterFont().LogToTrace();
+    }
+}
+
+internal static class DesktopTrackPlayer
+{
+    public static async Task PlayToCompletionAsync(
+        byte[] content,
+        string contentType,
+        string fileName,
+        CancellationToken cancellationToken)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "Music Library");
+        Directory.CreateDirectory(directory);
+        var temporaryPath = Path.Combine(directory, $"{Guid.NewGuid():N}{Path.GetExtension(Path.GetFileName(fileName))}");
+        await File.WriteAllBytesAsync(temporaryPath, content, cancellationToken);
+
+        try
+        {
+            if (!OperatingSystem.IsWindows())
+            {
+                await PlayWithCommandAsync(temporaryPath, cancellationToken);
+                return;
+            }
+
+            using var reader = new MediaFoundationReader(temporaryPath);
+            using var output = new WaveOutEvent();
+            var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            output.PlaybackStopped += (_, eventArgs) =>
+            {
+                if (eventArgs.Exception is not null)
+                {
+                    completion.TrySetException(eventArgs.Exception);
+                    return;
+                }
+
+                completion.TrySetResult();
+            };
+            using var cancellationRegistration = cancellationToken.Register(output.Stop);
+            output.Init(reader);
+            output.Play();
+            await completion.Task.WaitAsync(cancellationToken);
+        }
+        finally
+        {
+            File.Delete(temporaryPath);
+        }
+    }
+
+    private static async Task PlayWithCommandAsync(string path, CancellationToken cancellationToken)
+    {
+        var players = OperatingSystem.IsMacOS()
+            ? new[] { (Command: "afplay", Arguments: Array.Empty<string>()) }
+            : new[]
+            {
+                (Command: "mpv", Arguments: new[] { "--no-video", "--really-quiet" }),
+                (Command: "ffplay", Arguments: new[] { "-nodisp", "-autoexit", "-loglevel", "quiet" }),
+                (Command: "cvlc", Arguments: new[] { "--play-and-exit", "--intf", "dummy" })
+            };
+
+        foreach (var player in players)
+        {
+            try
+            {
+                var startInfo = new ProcessStartInfo(player.Command) { UseShellExecute = false };
+                foreach (var argument in player.Arguments) startInfo.ArgumentList.Add(argument);
+                startInfo.ArgumentList.Add(path);
+                using var process = Process.Start(startInfo);
+                if (process is null) continue;
+                using var cancellationRegistration = cancellationToken.Register(() => TryKill(process));
+                await process.WaitForExitAsync(cancellationToken);
+                if (process.ExitCode == 0) return;
+            }
+            catch (Win32Exception)
+            {
+            }
+        }
+
+        throw new InvalidOperationException(OperatingSystem.IsMacOS()
+            ? "Continuous playback requires afplay on macOS."
+            : "Continuous playback requires mpv, ffplay, or VLC on Linux.");
+    }
+
+    private static void TryKill(Process process)
+    {
+        try
+        {
+            if (!process.HasExited) process.Kill(entireProcessTree: true);
+        }
+        catch (InvalidOperationException)
+        {
+        }
     }
 }
 

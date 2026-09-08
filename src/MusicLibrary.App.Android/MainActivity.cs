@@ -64,6 +64,7 @@ public sealed class MainActivity : AvaloniaMainActivity
             _cachedTrackPlayer.Start();
             return Task.FromResult(1);
         };
+        NativeRadioActions.PlayFileToCompletionAsync = PlayCachedTrackToCompletionAsync;
         NativeRadioActions.SaveFileAsync = (content, _, fileName) =>
         {
             var directory = GetExternalFilesDir(global::Android.OS.Environment.DirectoryMusic)?.AbsolutePath ?? FilesDir!.AbsolutePath;
@@ -76,6 +77,45 @@ public sealed class MainActivity : AvaloniaMainActivity
     {
         ReleaseCachedTrackPlayer();
         base.OnDestroy();
+    }
+
+    private async Task PlayCachedTrackToCompletionAsync(
+        byte[] content,
+        string contentType,
+        string fileName,
+        CancellationToken cancellationToken)
+    {
+        ReleaseCachedTrackPlayer();
+        var directory = Path.Combine(CacheDir!.AbsolutePath, "Music Library");
+        Directory.CreateDirectory(directory);
+        _cachedTrackPath = Path.Combine(directory, $"{Guid.NewGuid():N}{Path.GetExtension(Path.GetFileName(fileName))}");
+        await File.WriteAllBytesAsync(_cachedTrackPath, content, cancellationToken);
+
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var player = new global::Android.Media.MediaPlayer();
+        _cachedTrackPlayer = player;
+        player.Completion += (_, _) =>
+        {
+            if (_cachedTrackPlayer == player) ReleaseCachedTrackPlayer();
+            completion.TrySetResult();
+        };
+        using var cancellationRegistration = cancellationToken.Register(() =>
+        {
+            if (_cachedTrackPlayer == player) ReleaseCachedTrackPlayer();
+            completion.TrySetCanceled(cancellationToken);
+        });
+        try
+        {
+            player.SetDataSource(_cachedTrackPath);
+            player.Prepare();
+            player.Start();
+            await completion.Task;
+        }
+        catch
+        {
+            if (_cachedTrackPlayer == player) ReleaseCachedTrackPlayer();
+            throw;
+        }
     }
 
     private void ReleaseCachedTrackPlayer()

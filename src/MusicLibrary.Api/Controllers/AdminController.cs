@@ -53,8 +53,12 @@ public sealed class AdminController(
 
         await configService.SaveAsync(request.Values, CurrentUserId, cancellationToken);
         var config = await configService.GetAsync(cancellationToken);
+        var key = TrackCacheCryptography.TryGetKey(config.TrendingCacheEncryptionKey, out var encryptionKey)
+            ? encryptionKey
+            : null;
         await trackCacheStorage.EnforceLimitAsync(
             repository,
+            key,
             config.TrendingCacheMaxSizeMegabytes * 1024L * 1024L,
             cancellationToken);
         return NoContent();

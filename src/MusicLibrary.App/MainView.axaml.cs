@@ -23,6 +23,8 @@ public sealed partial class MainView : UserControl
     private readonly Dictionary<string, List<Button>> _subscriptionButtons = new(StringComparer.OrdinalIgnoreCase);
     private CancellationTokenSource? _librarySearchCancellation;
     private CancellationTokenSource? _libraryPollingCancellation;
+    private CancellationTokenSource? _trendingBatchDownloadCancellation;
+    private CancellationTokenSource? _trendingPlaybackCancellation;
     private CancellationTokenSource? _probeSearchCancellation;
     private CancellationTokenSource? _probeStatusPollingCancellation;
     private CancellationTokenSource? _sessionExpiryCancellation;
@@ -91,6 +93,8 @@ public sealed partial class MainView : UserControl
     {
         _librarySearchCancellation?.Cancel();
         _libraryPollingCancellation?.Cancel();
+        _trendingBatchDownloadCancellation?.Cancel();
+        _trendingPlaybackCancellation?.Cancel();
         _probeSearchCancellation?.Cancel();
         _probeStatusPollingCancellation?.Cancel();
         _sessionExpiryCancellation?.Cancel();
@@ -220,6 +224,8 @@ public sealed partial class MainView : UserControl
     {
         _librarySearchCancellation?.Cancel();
         _libraryPollingCancellation?.Cancel();
+        _trendingBatchDownloadCancellation?.Cancel();
+        _trendingPlaybackCancellation?.Cancel();
         _probeSearchCancellation?.Cancel();
         _probeStatusPollingCancellation?.Cancel();
         _sessionExpiryCancellation?.Cancel();
@@ -276,10 +282,14 @@ public sealed partial class MainView : UserControl
     {
         _librarySearchCancellation?.Cancel();
         _libraryPollingCancellation?.Cancel();
+        _trendingBatchDownloadCancellation?.Cancel();
+        _trendingPlaybackCancellation?.Cancel();
         _libraryMode = mode;
         NowPlayingNavigationButton.Classes.Set("active", mode == LibraryMode.NowPlaying);
         FollowingNavigationButton.Classes.Set("active", mode == LibraryMode.Following);
         TrendingNavigationButton.Classes.Set("active", mode == LibraryMode.Trending);
+        PlayAllTrendingButton.IsVisible = mode == LibraryMode.Trending && ShowNativeMedia;
+        DownloadAllTrendingButton.IsVisible = mode == LibraryMode.Trending && ShowNativeMedia;
         LibraryViewTitle.Text = mode switch
         {
             LibraryMode.Following => "Following",
@@ -647,20 +657,28 @@ public sealed partial class MainView : UserControl
             }
             try
             {
-                var trends = await MusicLibraryApi.GetTrendingAsync(query, cancellationToken);
+                var trends = (await MusicLibraryApi.GetTrendingAsync(query, cancellationToken))
+                    .Where(trend => trend.CachedTrackId is not null)
+                    .ToList();
                 if (_libraryMode != LibraryMode.Trending) return;
                 var hasChanges = !_trendingSnapshot.SequenceEqual(trends);
-                var canReplaceRows = showLoading || NowPlayingScroll.Offset.Y <= 1;
+                var currentTrackIds = _trendingSnapshot.Select(trend => trend.CachedTrackId).ToHashSet();
+                var updatedTrackIds = trends.Select(trend => trend.CachedTrackId).ToHashSet();
+                var hasRemovedTracks = currentTrackIds.Except(updatedTrackIds).Any();
+                var canReplaceRows = showLoading || NowPlayingScroll.Offset.Y <= 1 || hasRemovedTracks;
                 if ((showLoading || hasChanges) && canReplaceRows)
                 {
                     _trendingSnapshot = trends.ToList();
                     NowPlayingList.ItemsSource = trends.Select((trend, index) => CreateTrendingRow(trend, index + 1)).ToList();
                 }
-                NowPlayingStatus.Text = trends.Count == 0
-                    ? (string.IsNullOrWhiteSpace(query) ? "No trends detected in the past 24 hours." : "No matching trends found.")
-                    : hasChanges && !canReplaceRows
-                        ? $"{trends.Count} trend(s) | Rankings updated"
-                        : $"{trends.Count} trend(s) from the past 24 hours | Updated {DateTime.Now:T}";
+                if (_trendingBatchDownloadCancellation is null && _trendingPlaybackCancellation is null)
+                {
+                    NowPlayingStatus.Text = trends.Count == 0
+                        ? (string.IsNullOrWhiteSpace(query) ? "No trends detected in the past 24 hours." : "No matching trends found.")
+                        : hasChanges && !canReplaceRows
+                            ? $"{trends.Count} trend(s) | Rankings updated"
+                            : $"{trends.Count} trend(s) from the past 24 hours | Updated {DateTime.Now:T}";
+                }
             }
             catch (OperationCanceledException)
             {
@@ -761,6 +779,12 @@ public sealed partial class MainView : UserControl
 
     private async Task PlayTrendingTrackAsync(Guid cachedTrackId, Button playButton)
     {
+        if (_trendingBatchDownloadCancellation is not null)
+        {
+            NowPlayingStatus.Text = "Wait for the batch download to finish before starting playback.";
+            return;
+        }
+        _trendingPlaybackCancellation?.Cancel();
         if (NativeRadioActions.PlayFileAsync is null)
         {
             NowPlayingStatus.Text = "Playback is not available on this platform.";
@@ -853,9 +877,173 @@ public sealed partial class MainView : UserControl
         }
     }
 
+    private async void DownloadAllTrending_Click(object? sender, RoutedEventArgs eventArgs)
+    {
+        if (_trendingPlaybackCancellation is not null)
+        {
+            NowPlayingStatus.Text = "Stop trending playback before downloading all recordings.";
+            return;
+        }
+        if (NativeRadioActions.SaveFileAsync is null)
+        {
+            NowPlayingStatus.Text = "Downloads are not available on this platform.";
+            return;
+        }
+
+        var cachedTrackIds = _trendingSnapshot
+            .Where(trend => trend.CachedTrackId is not null)
+            .Select(trend => trend.CachedTrackId!.Value)
+            .Distinct()
+            .ToList();
+        if (cachedTrackIds.Count == 0)
+        {
+            NowPlayingStatus.Text = "No cached trending recordings are ready to download.";
+            return;
+        }
+
+        _trendingBatchDownloadCancellation?.Cancel();
+        var cancellation = _trendingBatchDownloadCancellation = new CancellationTokenSource();
+        DownloadAllTrendingButton.IsEnabled = false;
+        PlayAllTrendingButton.IsEnabled = false;
+        var downloadedCount = 0;
+        var failedCount = 0;
+        try
+        {
+            for (var index = 0; index < cachedTrackIds.Count; index++)
+            {
+                cancellation.Token.ThrowIfCancellationRequested();
+                NowPlayingStatus.Text = $"Downloading trending recording {index + 1} of {cachedTrackIds.Count}...";
+                try
+                {
+                    var download = await MusicLibraryApi.DownloadTrendingTrackAsync(cachedTrackIds[index], cancellation.Token);
+                    await NativeRadioActions.SaveFileAsync(download.Content, download.ContentType, download.FileName);
+                    downloadedCount++;
+                }
+                catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch
+                {
+                    failedCount++;
+                }
+            }
+
+            if (_libraryMode == LibraryMode.Trending && LibraryView.IsVisible)
+            {
+                NowPlayingStatus.Text = failedCount == 0
+                    ? $"Downloaded {downloadedCount} trending recording(s)."
+                    : $"Downloaded {downloadedCount} trending recording(s); {failedCount} failed or expired.";
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        finally
+        {
+            if (_trendingBatchDownloadCancellation == cancellation)
+            {
+                _trendingBatchDownloadCancellation = null;
+                DownloadAllTrendingButton.IsEnabled = true;
+                PlayAllTrendingButton.IsEnabled = true;
+            }
+            cancellation.Dispose();
+        }
+    }
+
+    private async void PlayAllTrending_Click(object? sender, RoutedEventArgs eventArgs)
+    {
+        if (_trendingPlaybackCancellation is not null)
+        {
+            _trendingPlaybackCancellation.Cancel();
+            return;
+        }
+        if (_trendingBatchDownloadCancellation is not null)
+        {
+            NowPlayingStatus.Text = "Wait for the batch download to finish before starting playback.";
+            return;
+        }
+        if (NativeRadioActions.PlayFileToCompletionAsync is null)
+        {
+            NowPlayingStatus.Text = "Continuous playback is not available on this platform.";
+            return;
+        }
+
+        var cachedTrackIds = _trendingSnapshot
+            .Where(trend => trend.CachedTrackId is not null)
+            .Select(trend => trend.CachedTrackId!.Value)
+            .Distinct()
+            .ToList();
+        if (cachedTrackIds.Count == 0)
+        {
+            NowPlayingStatus.Text = "No cached trending recordings are ready to play.";
+            return;
+        }
+
+        var cancellation = _trendingPlaybackCancellation = new CancellationTokenSource();
+        PlayAllTrendingButton.Content = "Stop";
+        DownloadAllTrendingButton.IsEnabled = false;
+        var cycle = 1;
+        try
+        {
+            while (!cancellation.IsCancellationRequested)
+            {
+                var playedCount = 0;
+                for (var index = 0; index < cachedTrackIds.Count; index++)
+                {
+                    cancellation.Token.ThrowIfCancellationRequested();
+                    NowPlayingStatus.Text = $"Playing trending recording {index + 1} of {cachedTrackIds.Count} (loop {cycle})...";
+                    try
+                    {
+                        var download = await MusicLibraryApi.DownloadTrendingTrackAsync(cachedTrackIds[index], cancellation.Token);
+                        await NativeRadioActions.PlayFileToCompletionAsync(
+                            download.Content,
+                            download.ContentType,
+                            download.FileName,
+                            cancellation.Token);
+                        playedCount++;
+                    }
+                    catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+                    {
+                        throw;
+                    }
+                    catch
+                    {
+                    }
+                }
+
+                if (playedCount == 0)
+                {
+                    NowPlayingStatus.Text = "None of the trending recordings could be played.";
+                    break;
+                }
+                cycle++;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            if (_libraryMode == LibraryMode.Trending && LibraryView.IsVisible)
+            {
+                NowPlayingStatus.Text = "Trending playback stopped.";
+            }
+        }
+        finally
+        {
+            if (_trendingPlaybackCancellation == cancellation)
+            {
+                _trendingPlaybackCancellation = null;
+                PlayAllTrendingButton.Content = "Play all";
+                DownloadAllTrendingButton.IsEnabled = true;
+            }
+            cancellation.Dispose();
+        }
+    }
+
     private async void Administration_Click(object? sender, RoutedEventArgs eventArgs)
     {
         _libraryPollingCancellation?.Cancel();
+        _trendingBatchDownloadCancellation?.Cancel();
+        _trendingPlaybackCancellation?.Cancel();
         _probeStatusPollingCancellation?.Cancel();
         NowPlayingNavigationButton.Classes.Set("active", false);
         FollowingNavigationButton.Classes.Set("active", false);

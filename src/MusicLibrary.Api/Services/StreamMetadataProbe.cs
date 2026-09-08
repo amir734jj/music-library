@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using StreamRipper.Interfaces;
 using StreamRipper.Models;
 
@@ -10,8 +11,11 @@ public interface IStreamMetadataProbe
     Task<MetadataProbeResult?> ProbeAsync(Uri streamUri, TimeSpan timeout, CancellationToken cancellationToken);
 }
 
-public sealed class StreamMetadataProbe(IStreamRipperFactory streamRipperFactory) : IStreamMetadataProbe
+public sealed partial class StreamMetadataProbe(IStreamRipperFactory streamRipperFactory) : IStreamMetadataProbe
 {
+    [GeneratedRegex("(?:^|;)\\s*StreamTitle='(?<value>(?:\\\\.|[^'])*)'", RegexOptions.IgnoreCase)]
+    private static partial Regex StreamTitlePattern();
+
     public async Task<MetadataProbeResult?> ProbeAsync(Uri streamUri, TimeSpan timeout, CancellationToken cancellationToken)
     {
         using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -26,7 +30,7 @@ public sealed class StreamMetadataProbe(IStreamRipperFactory streamRipperFactory
         ripper.MetadataChangedHandlers += (_, eventArgs) =>
         {
             var metadata = eventArgs.SongMetadata;
-            completion.TrySetResult(new MetadataProbeResult(metadata.Raw, metadata.Artist, metadata.Title));
+            completion.TrySetResult(CreateResult(metadata.Raw, metadata.Artist, metadata.Title));
         };
         ripper.StreamFailedHandlers += (_, _) =>
         {
@@ -40,5 +44,36 @@ public sealed class StreamMetadataProbe(IStreamRipperFactory streamRipperFactory
         ripper.Start();
         using var cancellationRegistration = timeoutSource.Token.Register(() => completion.TrySetResult(null));
         return await completion.Task;
+    }
+
+    internal static MetadataProbeResult CreateResult(string rawMetadata, string? artist, string? title)
+    {
+        var raw = rawMetadata.Trim();
+        var streamTitle = StreamTitlePattern().Match(raw);
+        if (streamTitle.Success)
+        {
+            raw = streamTitle.Groups["value"].Value
+                .Replace("\\'", "'", StringComparison.Ordinal)
+                .Replace("\\\\", "\\", StringComparison.Ordinal)
+                .Trim();
+        }
+
+        if (ContainsIcyField(artist) || ContainsIcyField(title))
+        {
+            artist = null;
+            title = null;
+        }
+
+        return new MetadataProbeResult(raw, NullIfWhiteSpace(artist), NullIfWhiteSpace(title));
+    }
+
+    private static bool ContainsIcyField(string? value) =>
+        value?.Contains("StreamTitle=", StringComparison.OrdinalIgnoreCase) == true
+        || value?.Contains("StreamUrl=", StringComparison.OrdinalIgnoreCase) == true
+        || value?.Contains("StreamArtwork=", StringComparison.OrdinalIgnoreCase) == true;
+
+    private static string? NullIfWhiteSpace(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 }

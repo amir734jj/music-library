@@ -183,6 +183,7 @@ public sealed class TrackCacheStorage(IConfiguration configuration)
 
     public async Task EnforceLimitAsync(
         IEfRepository repository,
+        byte[]? encryptionKey,
         long maximumCacheBytes,
         CancellationToken cancellationToken)
     {
@@ -192,6 +193,10 @@ public sealed class TrackCacheStorage(IConfiguration configuration)
             Directory.CreateDirectory(CacheDirectory);
             await RemoveExpiredAsync(repository, cancellationToken);
             await ReconcileAsync(repository, cancellationToken);
+            if (encryptionKey is not null)
+            {
+                await RemoveInvalidAsync(repository, encryptionKey, cancellationToken);
+            }
             await MakeSpaceAsync(repository, maximumCacheBytes, 0, cancellationToken);
         }
         finally
@@ -298,6 +303,52 @@ public sealed class TrackCacheStorage(IConfiguration configuration)
         }
         cancellationToken.ThrowIfCancellationRequested();
     }
+
+    private static async Task RemoveInvalidAsync(
+        IEfRepository repository,
+        byte[] encryptionKey,
+        CancellationToken cancellationToken)
+    {
+        var tracks = repository.For<CachedTrack>();
+        var fingerprint = TrackCacheCryptography.GetFingerprint(encryptionKey);
+        var metadata = (await tracks.GetAll<CachedTrack>(maxResults: 100000)).ToList();
+        var invalidIds = new List<Guid>();
+        foreach (var track in metadata)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var isValid = track.KeyFingerprint == fingerprint;
+            try
+            {
+                if (isValid)
+                {
+                    var encrypted = await File.ReadAllBytesAsync(track.FilePath, cancellationToken);
+                    var content = TrackCacheCryptography.Decrypt(encrypted, encryptionKey);
+                    isValid = TrackAudioValidation.TryGetContentType(content, out _);
+                }
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or CryptographicException)
+            {
+                isValid = false;
+            }
+            if (isValid) continue;
+
+            try
+            {
+                File.Delete(track.FilePath);
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+            invalidIds.Add(track.Id);
+        }
+        if (invalidIds.Count > 0)
+        {
+            await tracks.Delete([track => invalidIds.Contains(track.Id)]);
+        }
+    }
 }
 
 public sealed class EncryptedTrackCacheWorker(
@@ -317,8 +368,12 @@ public sealed class EncryptedTrackCacheWorker(
         {
             var config = await scope.ServiceProvider.GetRequiredService<IGlobalConfigService>().GetAsync(stoppingToken);
             var repository = scope.ServiceProvider.GetRequiredService<IEfRepository>();
+            var key = TrackCacheCryptography.TryGetKey(config.TrendingCacheEncryptionKey, out var encryptionKey)
+                ? encryptionKey
+                : null;
             await storage.EnforceLimitAsync(
                 repository,
+                key,
                 config.TrendingCacheMaxSizeMegabytes * 1024L * 1024L,
                 stoppingToken);
         }
@@ -360,8 +415,12 @@ public sealed class EncryptedTrackCacheWorker(
                 using var scope = scopeFactory.CreateScope();
                 var config = await scope.ServiceProvider.GetRequiredService<IGlobalConfigService>().GetAsync(stoppingToken);
                 var repository = scope.ServiceProvider.GetRequiredService<IEfRepository>();
+                var key = TrackCacheCryptography.TryGetKey(config.TrendingCacheEncryptionKey, out var encryptionKey)
+                    ? encryptionKey
+                    : null;
                 await storage.EnforceLimitAsync(
                     repository,
+                    key,
                     config.TrendingCacheMaxSizeMegabytes * 1024L * 1024L,
                     stoppingToken);
             }

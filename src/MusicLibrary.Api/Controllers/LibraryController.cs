@@ -102,6 +102,7 @@ public sealed class LibraryController(
                     cachedTrack?.Id,
                     cachedTrack?.ExpiresAt);
             })
+            .Where(trend => trend.CachedTrackId is not null)
             .OrderByDescending(trend => trend.ObservationCount)
             .ThenByDescending(trend => trend.StationCount)
             .ThenByDescending(trend => trend.LastObservedAt)
