@@ -35,6 +35,12 @@ public sealed class AdminController(
         return configService.GetAsync(cancellationToken);
     }
 
+    [HttpGet("cache/status")]
+    public Task<TrendingCacheStatusSummary> GetCacheStatus(CancellationToken cancellationToken)
+    {
+        return trackCacheStorage.GetStatusAsync(cancellationToken);
+    }
+
     [HttpPut("config")]
     public async Task<IActionResult> SaveConfig(UpdateGlobalConfigRequest request, CancellationToken cancellationToken)
     {

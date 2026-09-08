@@ -142,6 +142,23 @@ public sealed class TrackCacheStorage
         }
     }
 
+    public async Task<TrendingCacheStatusSummary> GetStatusAsync(CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            Directory.CreateDirectory(CacheDirectory);
+            var files = Directory.EnumerateFiles(CacheDirectory, "*.cache")
+                .Select(path => new FileInfo(path))
+                .ToList();
+            return new TrendingCacheStatusSummary(files.Sum(file => file.Length), files.Count);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     private async Task<bool> MakeSpaceAsync(
         IEfRepository repository,
         long maximumCacheBytes,

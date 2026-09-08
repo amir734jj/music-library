@@ -53,6 +53,9 @@ public interface IMusicLibraryApiClient
     [Get("/api/admin/config")]
     Task<ApiResponse<GlobalConfigModel>> GetAdminConfigAsync([Authorize] string accessToken, CancellationToken cancellationToken = default);
 
+    [Get("/api/admin/cache/status")]
+    Task<ApiResponse<TrendingCacheStatusSummary>> GetAdminCacheStatusAsync([Authorize] string accessToken, CancellationToken cancellationToken = default);
+
     [Put("/api/admin/config")]
     Task<IApiResponse> SaveAdminConfigAsync([Body] UpdateGlobalConfigRequest request, [Authorize] string accessToken, CancellationToken cancellationToken = default);
 
@@ -259,6 +262,14 @@ public static class MusicLibraryApi
     {
         if (!IsAuthenticated) throw new InvalidOperationException("An authenticated session is required.");
         using var response = await Client.GetAdminConfigAsync(_authentication!.AccessToken, cancellationToken);
+        EnsureSuccess(response);
+        return GetContent(response);
+    }
+
+    public static async Task<TrendingCacheStatusSummary> GetTrendingCacheStatusAsync(CancellationToken cancellationToken = default)
+    {
+        if (!IsAuthenticated) throw new InvalidOperationException("An authenticated session is required.");
+        using var response = await Client.GetAdminCacheStatusAsync(_authentication!.AccessToken, cancellationToken);
         EnsureSuccess(response);
         return GetContent(response);
     }

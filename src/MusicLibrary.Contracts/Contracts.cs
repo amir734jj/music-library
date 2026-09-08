@@ -57,6 +57,7 @@ public sealed record TrendingSummary(
 	DateTimeOffset LastObservedAt,
 	Guid? CachedTrackId,
 	DateTimeOffset? CachedUntil);
+public sealed record TrendingCacheStatusSummary(long SizeBytes, int SongCount);
 public sealed record ArtistSubscriptionSummary(Guid Id, string ArtistName, DateTimeOffset CreatedAt, bool CaptureEnabled);
 public sealed record CreateSubscriptionRequest(string ArtistName, bool CaptureEnabled);
 public sealed record UpdateGlobalConfigRequest(IReadOnlyDictionary<string, string> Values);

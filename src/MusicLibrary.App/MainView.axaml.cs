@@ -1004,7 +1004,11 @@ public sealed partial class MainView : UserControl
         GlobalConfigStatus.Text = "Loading configuration...";
         try
         {
-            var config = await MusicLibraryApi.GetGlobalConfigAsync();
+            var configTask = MusicLibraryApi.GetGlobalConfigAsync();
+            var cacheStatusTask = MusicLibraryApi.GetTrendingCacheStatusAsync();
+            await Task.WhenAll(configTask, cacheStatusTask);
+            var config = await configTask;
+            var cacheStatus = await cacheStatusTask;
             ConfigDirectoryArtifactUrlInput.Text = config.DirectoryArtifactUrl;
             ConfigProbingEnabledInput.IsChecked = config.ProbingEnabled;
             SetProbingEnabledState(config.ProbingEnabled);
@@ -1015,6 +1019,8 @@ public sealed partial class MainView : UserControl
             ConfigTrendingCacheCaptureTimeoutInput.Value = config.TrendingCacheCaptureTimeoutSeconds;
             ConfigTrendingCacheRetentionInput.Value = config.TrendingCacheRetentionHours;
             ConfigTrendingCacheMaxSizeInput.Value = config.TrendingCacheMaxSizeMegabytes;
+            var cacheSizeMegabytes = cacheStatus.SizeBytes / (1024d * 1024d);
+            ConfigTrendingCacheStatus.Text = $"Current cache: {cacheStatus.SongCount:N0} song(s), {cacheSizeMegabytes:N1} MiB used";
             GlobalConfigStatus.Text = "Configuration loaded.";
         }
         catch (Exception exception)
