@@ -1780,15 +1780,12 @@ public sealed partial class MainView : UserControl
             {
                 throw new InvalidOperationException("Directory artifact URL must be an absolute HTTPS URL.");
             }
-            if (ConfigProbeConcurrencyInput.Value is not { } probeConcurrency
-                || ConfigProbeTimeoutInput.Value is not { } probeTimeout
-                || ConfigProbeBatchSizeInput.Value is not { } probeBatchSize
-                || ConfigTrendingCacheCaptureTimeoutInput.Value is not { } cacheTimeout
-                || ConfigTrendingCacheRetentionInput.Value is not { } cacheRetention
-                || ConfigTrendingCacheMaxSizeInput.Value is not { } cacheMaxSize)
-            {
-                throw new InvalidOperationException("All numeric configuration values are required.");
-            }
+            var probeConcurrency = GetDisplayedInteger(ConfigProbeConcurrencyInput, 1, 100, "Probe concurrency");
+            var probeTimeout = GetDisplayedInteger(ConfigProbeTimeoutInput, 2, 60, "Probe timeout");
+            var probeBatchSize = GetDisplayedInteger(ConfigProbeBatchSizeInput, 1, 1000, "Stations per batch");
+            var cacheTimeout = GetDisplayedInteger(ConfigTrendingCacheCaptureTimeoutInput, 60, 1800, "Trending cache capture timeout");
+            var cacheRetention = GetDisplayedInteger(ConfigTrendingCacheRetentionInput, 1, 168, "Trending cache retention");
+            var cacheMaxSize = GetDisplayedInteger(ConfigTrendingCacheMaxSizeInput, 32, 1024, "Trending cache maximum size");
             var cacheKey = ConfigTrendingCacheEncryptionKeyInput.Text?.Trim() ?? string.Empty;
             if (!string.IsNullOrEmpty(cacheKey)
                 && (!TryDecodeCacheKey(cacheKey, out var decodedKey) || decodedKey.Length != 32))
@@ -1800,13 +1797,13 @@ public sealed partial class MainView : UserControl
             {
                 DirectoryArtifactUrl = directoryArtifactUrl,
                 ProbingEnabled = ConfigProbingEnabledInput.IsChecked == true,
-                ProbeConcurrency = Convert.ToInt32(probeConcurrency),
-                ProbeTimeoutSeconds = Convert.ToInt32(probeTimeout),
-                ProbeBatchSize = Convert.ToInt32(probeBatchSize),
+                ProbeConcurrency = probeConcurrency,
+                ProbeTimeoutSeconds = probeTimeout,
+                ProbeBatchSize = probeBatchSize,
                 TrendingCacheEncryptionKey = cacheKey,
-                TrendingCacheCaptureTimeoutSeconds = Convert.ToInt32(cacheTimeout),
-                TrendingCacheRetentionHours = Convert.ToInt32(cacheRetention),
-                TrendingCacheMaxSizeMegabytes = Convert.ToInt32(cacheMaxSize)
+                TrendingCacheCaptureTimeoutSeconds = cacheTimeout,
+                TrendingCacheRetentionHours = cacheRetention,
+                TrendingCacheMaxSizeMegabytes = cacheMaxSize
             };
             await MusicLibraryApi.SaveGlobalConfigAsync(config);
             await Task.WhenAll(LoadGlobalConfigAsync(), LoadProbeStatusAsync());
@@ -1822,6 +1819,15 @@ public sealed partial class MainView : UserControl
             ReloadGlobalConfigButton.IsEnabled = true;
             ClearTrendingCacheButton.IsEnabled = true;
         }
+    }
+
+    private static int GetDisplayedInteger(NumericUpDown input, int minimum, int maximum, string name)
+    {
+        if (!int.TryParse(input.Text, out var value) || value < minimum || value > maximum)
+        {
+            throw new InvalidOperationException($"{name} must be a whole number between {minimum} and {maximum}.");
+        }
+        return value;
     }
 
     private async Task LoadGlobalConfigAsync()
