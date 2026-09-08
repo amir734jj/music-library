@@ -476,45 +476,30 @@ public sealed class EncryptedTrackCacheWorker(
 
 internal static class TrackAudioValidation
 {
-    private const int MinimumAudioBytes = 1024;
-    private const int HeaderScanBytes = 64 * 1024;
-
-    public static bool TryGetContentType(ReadOnlySpan<byte> content, out string contentType)
+    public static bool TryGetContentType(byte[] content, out string contentType)
     {
         contentType = string.Empty;
-        if (content.Length < MinimumAudioBytes) return false;
-        if (content.StartsWith("OggS"u8))
+        try
         {
-            contentType = "audio/ogg";
-            return true;
-        }
-        if (content.StartsWith("fLaC"u8))
-        {
-            contentType = "audio/flac";
-            return true;
-        }
+            using var stream = new MemoryStream(content, writable: false);
+            var track = new ATL.Track(stream);
+            if (track.DurationMs <= 0 || track.SampleRate <= 0 || track.Bitrate <= 0) return false;
 
-        var scanLength = Math.Min(content.Length - 2, HeaderScanBytes);
-        for (var index = 0; index < scanLength; index++)
-        {
-            if (content[index] != 0xff) continue;
-            var second = content[index + 1];
-            if ((second & 0xf6) == 0xf0)
+            var detectedType = track.AudioFormat.MimeList.FirstOrDefault()?.ToLowerInvariant();
+            contentType = detectedType switch
             {
-                contentType = "audio/aac";
-                return true;
-            }
-            if ((second & 0xe0) != 0xe0 || ((second >> 3) & 0x03) == 0x01 || ((second >> 1) & 0x03) == 0) continue;
-            var third = content[index + 2];
-            var bitrateIndex = (third >> 4) & 0x0f;
-            var sampleRateIndex = (third >> 2) & 0x03;
-            if (bitrateIndex is > 0 and < 0x0f && sampleRateIndex != 0x03)
-            {
-                contentType = "audio/mpeg";
-                return true;
-            }
+                "audio/aac" or "audio/aacp" => "audio/aac",
+                "audio/flac" or "audio/x-flac" => "audio/flac",
+                "audio/ogg" or "application/ogg" => "audio/ogg",
+                "audio/mp3" or "audio/mpeg" => "audio/mpeg",
+                _ => string.Empty
+            };
+            return contentType.Length > 0;
         }
-        return false;
+        catch (Exception)
+        {
+            return false;
+        }
     }
 }
 
