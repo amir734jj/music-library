@@ -19,6 +19,15 @@ public sealed class MainActivity : AvaloniaMainActivity
     protected override void OnCreate(Bundle? savedInstanceState)
     {
         MusicLibraryApi.Configure(new Uri("https://music-library.coolify.hesamian.com/"));
+        var authenticationPreferences = GetSharedPreferences("authentication", FileCreationMode.Private);
+        AuthenticationSessionStorage.Load = () => authenticationPreferences?.GetString("session", null);
+        AuthenticationSessionStorage.Save = value =>
+        {
+            using var editor = authenticationPreferences?.Edit();
+            if (value is null) editor?.Remove("session");
+            else editor?.PutString("session", value);
+            editor?.Apply();
+        };
         NativeRadioActions.ListenAsync = async streamUri =>
         {
             ReleaseCachedTrackPlayer();

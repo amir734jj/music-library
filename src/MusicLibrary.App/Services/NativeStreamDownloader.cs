@@ -9,7 +9,7 @@ public static class NativeStreamDownloader
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(duration, TimeSpan.Zero);
         Directory.CreateDirectory(destinationDirectory);
         var filename = $"radio-{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}.mp3";
-        var destinationPath = Path.Combine(destinationDirectory, filename);
+        var temporaryPath = Path.Combine(destinationDirectory, $".{Guid.NewGuid():N}.download");
         using var request = new HttpRequestMessage(HttpMethod.Get, streamUri);
         using var response = await HttpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         response.EnsureSuccessStatusCode();
@@ -20,25 +20,36 @@ public static class NativeStreamDownloader
         }
 
         await using var input = await response.Content.ReadAsStreamAsync(cancellationToken);
-        await using var output = File.Create(destinationPath);
-        using var timeLimit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeLimit.CancelAfter(duration);
-        var buffer = new byte[64 * 1024];
         try
         {
-            while (true)
+            await using (var output = File.Create(temporaryPath))
             {
-                var read = await input.ReadAsync(buffer, timeLimit.Token);
-                if (read == 0) break;
-                await output.WriteAsync(buffer.AsMemory(0, read), timeLimit.Token);
+                using var timeLimit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                timeLimit.CancelAfter(duration);
+                var buffer = new byte[64 * 1024];
+                try
+                {
+                    while (true)
+                    {
+                        var read = await input.ReadAsync(buffer, timeLimit.Token);
+                        if (read == 0) break;
+                        await output.WriteAsync(buffer.AsMemory(0, read), timeLimit.Token);
+                    }
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    // The configured duration completes a bounded live recording.
+                }
             }
-        }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-        {
-            // The configured duration completes a bounded live recording.
-        }
 
-        return destinationPath;
+            var destinationPath = GetAvailableDestinationPath(destinationDirectory, filename);
+            File.Move(temporaryPath, destinationPath);
+            return destinationPath;
+        }
+        finally
+        {
+            File.Delete(temporaryPath);
+        }
     }
 
     public static async Task<string> SaveAsync(
@@ -48,8 +59,33 @@ public static class NativeStreamDownloader
         CancellationToken cancellationToken = default)
     {
         Directory.CreateDirectory(destinationDirectory);
-        var destinationPath = Path.Combine(destinationDirectory, Path.GetFileName(fileName));
-        await File.WriteAllBytesAsync(destinationPath, content, cancellationToken);
-        return destinationPath;
+        var safeFileName = Path.GetFileName(fileName);
+        if (string.IsNullOrWhiteSpace(safeFileName)) safeFileName = "radio-track.mp3";
+        var temporaryPath = Path.Combine(destinationDirectory, $".{Guid.NewGuid():N}.download");
+        try
+        {
+            await File.WriteAllBytesAsync(temporaryPath, content, cancellationToken);
+            var destinationPath = GetAvailableDestinationPath(destinationDirectory, safeFileName);
+            File.Move(temporaryPath, destinationPath);
+            return destinationPath;
+        }
+        finally
+        {
+            File.Delete(temporaryPath);
+        }
+    }
+
+    private static string GetAvailableDestinationPath(string directory, string fileName)
+    {
+        var destinationPath = Path.Combine(directory, fileName);
+        if (!File.Exists(destinationPath)) return destinationPath;
+
+        var name = Path.GetFileNameWithoutExtension(fileName);
+        var extension = Path.GetExtension(fileName);
+        for (var suffix = 2; ; suffix++)
+        {
+            destinationPath = Path.Combine(directory, $"{name} ({suffix}){extension}");
+            if (!File.Exists(destinationPath)) return destinationPath;
+        }
     }
 }

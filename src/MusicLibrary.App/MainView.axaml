@@ -16,18 +16,18 @@
     <Grid Name="MainShell" Grid.Row="1" ColumnDefinitions="240,16,*" RowDefinitions="*,12,Auto">
       <Border Name="LibraryNavigation" Classes="panel">
         <ScrollViewer Name="LibraryNavigationScroll" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Disabled">
-          <StackPanel Name="LibraryNavigationPanel" Spacing="8">
-            <TextBlock Name="LibraryNavigationTitle" Text="Library" FontWeight="SemiBold" />
-            <Button Name="NowPlayingNavigationButton" Classes="nav" Content="Now playing" HorizontalContentAlignment="Left" Click="Library_Click" />
-            <Button Name="StationsNavigationButton" Classes="nav" Content="Stations" HorizontalContentAlignment="Left" Click="Stations_Click" />
-            <Button Name="FollowingNavigationButton" Classes="nav" Content="Following" HorizontalContentAlignment="Left" Click="Following_Click" />
-            <Button Name="TrendingNavigationButton" Classes="nav" Content="Trending" HorizontalContentAlignment="Left" Click="Trending_Click" />
-            <Button Name="OfflineNavigationButton" Classes="nav" Content="Offline" HorizontalContentAlignment="Left" Click="Offline_Click" IsVisible="{Binding ShowOfflineMode, ElementName=Root}" />
-            <Button Name="UserBoardNavigationButton" Classes="nav" Content="User board" HorizontalContentAlignment="Left" Click="UserBoard_Click" />
-            <Button Name="AboutNavigationButton" Classes="nav" Content="About" HorizontalContentAlignment="Left" Click="About_Click" />
+          <WrapPanel Name="LibraryNavigationPanel" Orientation="Vertical">
+            <TextBlock Name="LibraryNavigationTitle" Text="Library" FontWeight="SemiBold" Margin="0,0,0,8" />
+            <Button Name="NowPlayingNavigationButton" Classes="nav" Content="Now playing" HorizontalContentAlignment="Left" Click="Library_Click" Margin="0,0,8,8" />
+            <Button Name="StationsNavigationButton" Classes="nav" Content="Stations" HorizontalContentAlignment="Left" Click="Stations_Click" Margin="0,0,8,8" />
+            <Button Name="FollowingNavigationButton" Classes="nav" Content="Following" HorizontalContentAlignment="Left" Click="Following_Click" Margin="0,0,8,8" />
+            <Button Name="TrendingNavigationButton" Classes="nav" Content="Trending" HorizontalContentAlignment="Left" Click="Trending_Click" Margin="0,0,8,8" />
+            <Button Name="OfflineNavigationButton" Classes="nav" Content="Cached locally" HorizontalContentAlignment="Left" Click="Offline_Click" IsVisible="{Binding ShowOfflineMode, ElementName=Root}" Margin="0,0,8,8" />
+            <Button Name="UserBoardNavigationButton" Classes="nav" Content="User board" HorizontalContentAlignment="Left" Click="UserBoard_Click" Margin="0,0,8,8" />
+            <Button Name="AboutNavigationButton" Classes="nav" Content="About" HorizontalContentAlignment="Left" Click="About_Click" Margin="0,0,8,8" />
             <Separator Name="AdministrationSeparator" Margin="0,6" IsVisible="False" />
-            <Button Name="AdministrationButton" Content="Administration" HorizontalContentAlignment="Left" IsVisible="False" Click="Administration_Click" />
-          </StackPanel>
+            <Button Name="AdministrationButton" Content="Administration" HorizontalContentAlignment="Left" IsVisible="False" Click="Administration_Click" Margin="0,0,8,8" />
+          </WrapPanel>
         </ScrollViewer>
       </Border>
       <Grid Name="LibraryView" Grid.Column="2" RowDefinitions="Auto,12,*,12,Auto">

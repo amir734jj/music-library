@@ -148,7 +148,7 @@ public sealed partial class MainView : UserControl
             MainShell.RowDefinitions = new RowDefinitions("Auto,12,*,12,Auto");
             LibraryNavigationPanel.Orientation = Avalonia.Layout.Orientation.Horizontal;
             LibraryNavigationTitle.IsVisible = false;
-            LibraryNavigationScroll.HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto;
+            LibraryNavigationScroll.HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled;
             Grid.SetColumn(LibraryView, 0);
             Grid.SetRow(LibraryView, 2);
             Grid.SetColumn(AdministrationView, 0);
@@ -385,7 +385,7 @@ public sealed partial class MainView : UserControl
             LibraryMode.Following => "Following",
             LibraryMode.Stations => "Stations",
             LibraryMode.Trending => "Trending Now",
-            LibraryMode.Offline => "Offline",
+            LibraryMode.Offline => "Cached locally",
             LibraryMode.UserBoard => "User board",
             LibraryMode.About => "About",
             _ => "Now Playing"
@@ -497,8 +497,8 @@ public sealed partial class MainView : UserControl
             if (_libraryMode != LibraryMode.Offline) return;
             NowPlayingList.ItemsSource = tracks.Select(CreateOfflineTrackRow).ToList();
             NowPlayingStatus.Text = tracks.Count == 0
-                ? "No offline recordings. Download songs from Trending to listen without a connection."
-                : $"{tracks.Count} recording(s) available offline";
+                ? "No locally cached recordings. Download songs from Trending to keep them on this device."
+                : $"{tracks.Count} recording(s) cached locally";
         }
         catch (Exception exception)
         {
