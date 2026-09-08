@@ -3,9 +3,12 @@ using Android.Content.PM;
 using Avalonia.Android;
 using MusicLibrary.App.Services;
 
+[assembly: UsesPermission(global::Android.Manifest.Permission.Internet)]
+
 namespace MusicLibrary.App.Android;
 
-[Activity(Label = "Music Library", Theme = "@style/MyTheme.NoActionBar", MainLauncher = true,
+[Activity(Label = "Music Library", Theme = "@style/MyTheme.NoActionBar", Icon = "@drawable/app_icon",
+    MainLauncher = true, Exported = true,
     ConfigurationChanges = ConfigChanges.Orientation | ConfigChanges.ScreenSize | ConfigChanges.UiMode)]
 public sealed class MainActivity : AvaloniaMainActivity
 {
