@@ -12,7 +12,14 @@ public static class MusicLibraryApi
 {
     private static readonly JsonSerializerSettings SerializerSettings = new()
     {
-        ContractResolver = new CamelCasePropertyNamesContractResolver(),
+        ContractResolver = new CamelCasePropertyNamesContractResolver
+        {
+            NamingStrategy = new CamelCaseNamingStrategy
+            {
+                ProcessDictionaryKeys = false,
+                OverrideSpecifiedNames = true
+            }
+        },
         Converters = { new StringEnumConverter() }
     };
     private static Uri? _baseAddress;

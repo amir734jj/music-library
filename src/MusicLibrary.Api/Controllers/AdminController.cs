@@ -55,8 +55,11 @@ public sealed class AdminController(
     public async Task<IActionResult> SaveConfig(UpdateGlobalConfigRequest request, CancellationToken cancellationToken)
     {
         const string cacheKeyName = "TRENDING_CACHE_ENCRYPTION_KEY";
+        var values = request.Values
+            .GroupBy(pair => pair.Key.ToUpperInvariant(), StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.Last().Value, StringComparer.Ordinal);
         byte[] newKey = [];
-        if (request.Values.TryGetValue(cacheKeyName, out var cacheKey)
+        if (values.TryGetValue(cacheKeyName, out var cacheKey)
             && !TrackCacheCryptography.TryGetKey(cacheKey, out newKey))
         {
             ModelState.AddModelError(cacheKeyName, "The cache encryption key must be a Base64-encoded 32-byte key.");
@@ -90,8 +93,8 @@ public sealed class AdminController(
         }
 
         var remainingValues = keyChanged
-            ? request.Values.Where(pair => pair.Key != cacheKeyName).ToDictionary()
-            : request.Values;
+            ? values.Where(pair => pair.Key != cacheKeyName).ToDictionary()
+            : values;
         await configService.SaveAsync(remainingValues, CurrentUserId, cancellationToken);
         var config = await configService.GetAsync(cancellationToken);
         var key = TrackCacheCryptography.TryGetKey(config.TrendingCacheEncryptionKey, out var encryptionKey)
