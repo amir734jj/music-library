@@ -33,7 +33,7 @@ public sealed partial class MainView : UserControl
     private IReadOnlyCollection<ArtistSubscriptionSummary> _followingSnapshot = [];
     private IReadOnlyCollection<TrendingSummary> _trendingSnapshot = [];
     private bool _subscriptionsLoaded;
-    private bool _isCompactLayout;
+    private bool? _isCompactLayout;
 
     public bool IsBrowserHost { get; }
     public bool ShowNativeMedia
@@ -59,6 +59,7 @@ public sealed partial class MainView : UserControl
     protected override async void OnAttachedToVisualTree(Avalonia.VisualTreeAttachmentEventArgs eventArgs)
     {
         base.OnAttachedToVisualTree(eventArgs);
+        ApplyResponsiveLayout(Bounds.Width);
         if (!MusicLibraryApi.IsConfigured)
         {
             ApiConnectionStatus.Text = "Browser app";
@@ -92,7 +93,13 @@ public sealed partial class MainView : UserControl
 
     private void MainView_SizeChanged(object? sender, SizeChangedEventArgs eventArgs)
     {
-        var useCompactLayout = eventArgs.NewSize.Width < 760;
+        ApplyResponsiveLayout(eventArgs.NewSize.Width);
+    }
+
+    private void ApplyResponsiveLayout(double width)
+    {
+        if (width <= 0) return;
+        var useCompactLayout = width < 760;
         if (_isCompactLayout == useCompactLayout) return;
         _isCompactLayout = useCompactLayout;
 
@@ -183,6 +190,7 @@ public sealed partial class MainView : UserControl
         _subscriptionsLoaded = false;
         AuthenticationView.IsVisible = false;
         ApplicationView.IsVisible = true;
+        ApplyResponsiveLayout(Bounds.Width);
         CurrentUserStatus.Text = user.DisplayName ?? user.Email;
         var isAdmin = user.Roles.Contains(Roles.Admin);
         AdministrationSeparator.IsVisible = isAdmin;
@@ -272,7 +280,7 @@ public sealed partial class MainView : UserControl
             LibraryMode.Trending => "Trending Now",
             _ => "Now Playing"
         };
-        LibrarySearchInput.Watermark = mode switch
+        LibrarySearchInput.PlaceholderText = mode switch
         {
             LibraryMode.Following => "Search followed artists",
             LibraryMode.Trending => "Search trending artist or track",
