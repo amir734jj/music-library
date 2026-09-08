@@ -382,8 +382,6 @@ public sealed class EncryptedTrackCacheWorker(
         using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeoutSource.CancelAfter(timeout);
         var completion = new TaskCompletionSource<byte[]?>(TaskCreationOptions.RunContinuationsAsynchronously);
-        using var song = new MemoryStream();
-        var captureStarted = false;
         using var ripper = streamRipperFactory.New(new StreamRipperOptions
         {
             Url = request.StreamUri,
@@ -393,34 +391,12 @@ public sealed class EncryptedTrackCacheWorker(
         ripper.SongChangedEventHandlers += (_, eventArgs) =>
         {
             var metadata = eventArgs.SongInfo.SongMetadata;
-            if (captureStarted && Matches(metadata.Artist, metadata.Title, request))
-            {
-                var content = eventArgs.SongInfo.Stream.ToArray();
-                if (song.Length + content.Length <= MaximumCaptureBytes)
-                {
-                    song.Write(content);
-                }
-                else
-                {
-                    captureStarted = false;
-                    completion.TrySetResult(null);
-                }
-            }
-            eventArgs.SongInfo.Dispose();
-        };
-        ripper.MetadataChangedHandlers += (_, eventArgs) =>
-        {
-            var metadata = eventArgs.SongMetadata;
             if (Matches(metadata.Artist, metadata.Title, request))
             {
-                captureStarted = true;
-                return;
+                var content = eventArgs.SongInfo.Stream.ToArray();
+                completion.TrySetResult(content.Length is > 0 and <= MaximumCaptureBytes ? content : null);
             }
-            if (captureStarted)
-            {
-                captureStarted = false;
-                completion.TrySetResult(song.Length == 0 ? null : song.ToArray());
-            }
+            eventArgs.SongInfo.Dispose();
         };
         ripper.StreamFailedHandlers += (_, _) => completion.TrySetResult(null);
         ripper.StreamEndedEventHandlers += (_, _) => completion.TrySetResult(null);
