@@ -208,10 +208,10 @@ public sealed class MainActivity : AvaloniaMainActivity
     {
         var player = new global::Android.Media.MediaPlayer();
         using var builder = new global::Android.Media.AudioAttributes.Builder();
-        using var audioAttributes = builder
-            .SetUsage(global::Android.Media.AudioUsageKind.Media)
-            .SetContentType(global::Android.Media.AudioContentType.Music)
-            .Build();
+        builder.SetUsage(global::Android.Media.AudioUsageKind.Media);
+        builder.SetContentType(global::Android.Media.AudioContentType.Music);
+        using var audioAttributes = builder.Build()
+            ?? throw new InvalidOperationException("Android audio attributes could not be created.");
         player.SetAudioAttributes(audioAttributes);
         return player;
     }
