@@ -1,4 +1,5 @@
 using Avalonia;
+using System.Diagnostics;
 using MusicLibrary.App.Services;
 using Serilog;
 using Velopack;
