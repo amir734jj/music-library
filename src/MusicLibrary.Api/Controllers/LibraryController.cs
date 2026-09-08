@@ -5,6 +5,7 @@ using MusicLibrary.Api.Data;
 using MusicLibrary.Api.Services;
 using MusicLibrary.Contracts;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
 
 namespace MusicLibrary.Api.Controllers;
@@ -15,7 +16,9 @@ namespace MusicLibrary.Api.Controllers;
 public sealed class LibraryController(
     IEfRepository repository,
     IGlobalConfigService configService,
-    IEncryptedTrackCacheService encryptedTrackCacheService) : MusicLibraryControllerBase
+    IEncryptedTrackCacheService encryptedTrackCacheService,
+    LiveStreamTicketStore liveStreamTickets,
+    IHttpClientFactory httpClientFactory) : MusicLibraryControllerBase
 {
     [HttpGet("now-playing")]
     public async Task<IReadOnlyCollection<NowPlayingSummary>> NowPlaying([FromQuery] string? query)
@@ -45,6 +48,74 @@ public sealed class LibraryController(
                 station.CurrentConfidence,
                 station.StreamUrl),
             maxResults: 100)).ToList();
+    }
+
+    [HttpPost("now-playing/{stationId:guid}/stream-ticket")]
+    public async Task<ActionResult<LiveStreamTicket>> CreateLiveStreamTicket(Guid stationId)
+    {
+        var station = await repository.For<Station>().Get<Guid>(stationId);
+        if (station is null) return NotFound();
+        if (!Uri.TryCreate(station.StreamUrl, UriKind.Absolute, out var streamUri)
+            || (!streamUri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
+                && !streamUri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)))
+        {
+            return BadRequest("The station does not have a valid stream URL.");
+        }
+
+        var ticket = liveStreamTickets.Issue(stationId);
+        return Ok(new LiveStreamTicket($"/api/live-stream/{ticket}"));
+    }
+
+    [AllowAnonymous]
+    [HttpGet("live-stream/{ticket}")]
+    public async Task ProxyLiveStream(string ticket, CancellationToken cancellationToken)
+    {
+        if (!liveStreamTickets.TryResolve(ticket, out var stationId))
+        {
+            Response.StatusCode = StatusCodes.Status404NotFound;
+            return;
+        }
+
+        var station = await repository.For<Station>().Get<Guid>(stationId);
+        if (station is null
+            || !Uri.TryCreate(station.StreamUrl, UriKind.Absolute, out var streamUri)
+            || (!streamUri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
+                && !streamUri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)))
+        {
+            Response.StatusCode = StatusCodes.Status404NotFound;
+            return;
+        }
+
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, streamUri);
+            request.Headers.TryAddWithoutValidation("Icy-MetaData", "0");
+            request.Headers.UserAgent.ParseAdd("MusicLibrary/1.0");
+            using var upstream = await httpClientFactory.CreateClient("LiveStreamProxy").SendAsync(
+                request,
+                HttpCompletionOption.ResponseHeadersRead,
+                cancellationToken);
+            if (!upstream.IsSuccessStatusCode)
+            {
+                Response.StatusCode = StatusCodes.Status502BadGateway;
+                return;
+            }
+
+            Response.StatusCode = StatusCodes.Status200OK;
+            Response.ContentType = upstream.Content.Headers.ContentType?.ToString() ?? "audio/mpeg";
+            Response.Headers.CacheControl = "no-store";
+            Response.Headers["X-Accel-Buffering"] = "no";
+            HttpContext.Features.Get<IHttpResponseBodyFeature>()?.DisableBuffering();
+            await using var stream = await upstream.Content.ReadAsStreamAsync(cancellationToken);
+            await stream.CopyToAsync(Response.Body, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (HttpRequestException)
+        {
+            if (!Response.HasStarted) Response.StatusCode = StatusCodes.Status502BadGateway;
+        }
     }
 
     [HttpGet("trending")]

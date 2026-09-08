@@ -57,6 +57,7 @@ public sealed record NowPlayingSummary(
 	DateTimeOffset ObservedAt,
 	decimal Confidence,
 	string? StreamUrl);
+public sealed record LiveStreamTicket(string Path);
 public sealed record TrendingSummary(
 	string Artist,
 	string? Title,

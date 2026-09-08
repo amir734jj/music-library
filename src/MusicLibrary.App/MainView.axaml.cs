@@ -468,9 +468,10 @@ public sealed partial class MainView : UserControl
         Grid.SetRow(observedAt, 1);
         row.Children.Add(observedAt);
 
-        if (Uri.TryCreate(observation.StreamUrl, UriKind.Absolute, out var streamUri)
-            && streamUri.Scheme is Uri.UriSchemeHttp or Uri.UriSchemeHttps
-            && NativeRadioActions.ListenAsync is not null)
+        var hasDirectStream = Uri.TryCreate(observation.StreamUrl, UriKind.Absolute, out var streamUri)
+            && (streamUri.Scheme == Uri.UriSchemeHttp || streamUri.Scheme == Uri.UriSchemeHttps)
+            && NativeRadioActions.ListenAsync is not null;
+        if (hasDirectStream || NativeRadioActions.ListenToStationAsync is not null)
         {
             var listenButton = new Button
             {
@@ -480,7 +481,11 @@ public sealed partial class MainView : UserControl
                 VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
             };
             ToolTip.SetTip(listenButton, $"Listen live to {observation.StationName}");
-            listenButton.Click += async (_, _) => await ListenToStationAsync(streamUri, observation.StationName, listenButton);
+            listenButton.Click += async (_, _) => await ListenToNowPlayingStationAsync(
+                observation.StationId,
+                streamUri,
+                observation.StationName,
+                listenButton);
             Grid.SetColumn(listenButton, 3);
             Grid.SetRow(listenButton, 1);
             row.Children.Add(listenButton);
@@ -511,12 +516,27 @@ public sealed partial class MainView : UserControl
         return row;
     }
 
-    private async Task ListenToStationAsync(Uri streamUri, string stationName, Button listenButton)
+    private async Task ListenToNowPlayingStationAsync(
+        Guid stationId,
+        Uri? streamUri,
+        string stationName,
+        Button listenButton)
     {
         listenButton.IsEnabled = false;
         try
         {
-            await NativeRadioActions.ListenAsync!(streamUri);
+            if (NativeRadioActions.ListenToStationAsync is not null)
+            {
+                await NativeRadioActions.ListenToStationAsync(stationId);
+            }
+            else if (streamUri is not null && NativeRadioActions.ListenAsync is not null)
+            {
+                await NativeRadioActions.ListenAsync(streamUri);
+            }
+            else
+            {
+                throw new InvalidOperationException("Live listening is not available on this platform.");
+            }
             NowPlayingStatus.Text = $"Listening live to {stationName}.";
         }
         catch (Exception exception)

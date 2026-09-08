@@ -12,8 +12,11 @@ internal static class Program
         App.IsBrowserHost = true;
         AuthenticationSessionStorage.Load = BrowserAuthenticationSessionStorage.Load;
         AuthenticationSessionStorage.Save = BrowserAuthenticationSessionStorage.Save;
-        NativeRadioActions.ListenAsync = streamUri =>
-            BrowserAuthenticationSessionStorage.ListenLiveAsync(streamUri.AbsoluteUri);
+        NativeRadioActions.ListenToStationAsync = async stationId =>
+        {
+            var streamUri = await MusicLibraryApi.CreateLiveStreamUriAsync(stationId);
+            await BrowserAuthenticationSessionStorage.ListenLiveAsync(streamUri.AbsoluteUri);
+        };
         NativeRadioActions.PlayFileAsync =
             (content, contentType, _) => BrowserAuthenticationSessionStorage.PlayFileAsync(content, contentType);
         NativeRadioActions.ToggleFilePlaybackAsync = BrowserAuthenticationSessionStorage.ToggleFilePlaybackAsync;

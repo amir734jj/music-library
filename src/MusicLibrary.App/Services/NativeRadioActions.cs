@@ -5,6 +5,7 @@ namespace MusicLibrary.App;
 public static class NativeRadioActions
 {
     public static Func<Uri, Task>? ListenAsync { get; set; }
+    public static Func<Guid, Task>? ListenToStationAsync { get; set; }
     public static Func<Uri, TimeSpan, Task<string>>? DownloadAsync { get; set; }
     public static Func<byte[], string, string, Task>? PlayFileAsync { get; set; }
     public static Func<byte[], string, string, CancellationToken, Task>? PlayFileToCompletionAsync { get; set; }

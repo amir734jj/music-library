@@ -24,6 +24,9 @@ public interface IMusicLibraryApiClient
     [Get("/api/now-playing")]
     Task<ApiResponse<List<NowPlayingSummary>>> GetNowPlayingAsync([Query] string? query, [Authorize] string accessToken, CancellationToken cancellationToken = default);
 
+    [Post("/api/now-playing/{stationId}/stream-ticket")]
+    Task<ApiResponse<LiveStreamTicket>> CreateLiveStreamTicketAsync(Guid stationId, [Authorize] string accessToken, CancellationToken cancellationToken = default);
+
     [Get("/api/trending")]
     Task<ApiResponse<List<TrendingSummary>>> GetTrendingAsync([Query] string? query, [Authorize] string accessToken, CancellationToken cancellationToken = default);
 
@@ -191,6 +194,14 @@ public static class MusicLibraryApi
         using var response = await Client.GetNowPlayingAsync(query, _authentication!.AccessToken, cancellationToken);
         EnsureSuccess(response);
         return GetContent(response);
+    }
+
+    public static async Task<Uri> CreateLiveStreamUriAsync(Guid stationId, CancellationToken cancellationToken = default)
+    {
+        if (!IsAuthenticated) throw new InvalidOperationException("An authenticated session is required.");
+        using var response = await Client.CreateLiveStreamTicketAsync(stationId, _authentication!.AccessToken, cancellationToken);
+        EnsureSuccess(response);
+        return new Uri(BaseAddress, GetContent(response).Path);
     }
 
     public static async Task<IReadOnlyCollection<TrendingSummary>> GetTrendingAsync(string? query = null, CancellationToken cancellationToken = default)

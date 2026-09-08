@@ -111,9 +111,11 @@ builder.Services.Scan(scan => scan
     .WithScopedLifetime());
 builder.Services.AddStreamRipper();
 builder.Services.AddHttpClient<IStationDirectoryImportService, StationDirectoryImportService>(client => client.Timeout = TimeSpan.FromMinutes(5));
+builder.Services.AddHttpClient("LiveStreamProxy", client => client.Timeout = Timeout.InfiniteTimeSpan);
 builder.Services.AddSingleton<StationProbeStatusStore>();
 builder.Services.AddSingleton<TrackCaptureQueue>();
 builder.Services.AddSingleton<TrackCacheStorage>();
+builder.Services.AddSingleton<LiveStreamTicketStore>();
 builder.Services.AddHostedService<StationProbeWorker>();
 builder.Services.AddHostedService<EncryptedTrackCacheWorker>();
 
