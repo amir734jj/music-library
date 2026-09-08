@@ -1,7 +1,10 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace MusicLibrary.Api.Data;
 
 public sealed class UserPlaybackActivity
 {
+    [Key]
     public Guid UserId { get; set; }
     public ApplicationUser User { get; set; } = null!;
     public string PlaybackDescription { get; set; } = string.Empty;
