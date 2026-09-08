@@ -2086,7 +2086,7 @@ public sealed partial class MainView : UserControl
             var cacheTimeout = GetDisplayedInteger(ConfigTrendingCacheCaptureTimeoutInput, 60, 1800, "Trending cache capture timeout");
             var minimumTrendingDuration = GetDisplayedInteger(ConfigTrendingMinimumDurationInput, 15, 600, "Minimum trending duration");
             var cacheRetention = GetDisplayedInteger(ConfigTrendingCacheRetentionInput, 1, 168, "Trending cache retention");
-            var cacheMaxSize = GetDisplayedInteger(ConfigTrendingCacheMaxSizeInput, 32, 1024, "Trending cache maximum size");
+            var cacheMaxSize = GetDisplayedInteger(ConfigTrendingCacheMaxSizeInput, 32, 4096, "Trending cache maximum size");
             var cacheKey = ConfigTrendingCacheEncryptionKeyInput.Text?.Trim() ?? string.Empty;
             if (!string.IsNullOrEmpty(cacheKey)
                 && (!TryDecodeCacheKey(cacheKey, out var decodedKey) || decodedKey.Length != 32))

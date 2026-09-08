@@ -130,7 +130,7 @@
                   <TextBlock Text="Trending cache retention (hours)" FontWeight="SemiBold" />
                   <NumericUpDown Name="ConfigTrendingCacheRetentionInput" Minimum="1" Maximum="168" Increment="1" />
                   <TextBlock Text="Trending cache maximum size (MiB)" FontWeight="SemiBold" />
-                  <NumericUpDown Name="ConfigTrendingCacheMaxSizeInput" Minimum="32" Maximum="1024" Increment="64" />
+                  <NumericUpDown Name="ConfigTrendingCacheMaxSizeInput" Minimum="32" Maximum="4096" Increment="64" />
                   <TextBlock Name="ConfigTrendingCacheStatus" Text="Current cache: loading..." Opacity="0.7" />
                   <WrapPanel Orientation="Horizontal">
                     <Button Name="SaveGlobalConfigButton" Content="Save configuration" Margin="0,0,8,8" Click="SaveGlobalConfig_Click" />
