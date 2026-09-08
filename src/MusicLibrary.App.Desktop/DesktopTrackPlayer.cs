@@ -1,3 +1,4 @@
+using LibVLCSharp.Shared;
 using NAudio.Wave;
 using SoundFlow.Abstracts;
 using SoundFlow.Backends.MiniAudio;
@@ -11,6 +12,7 @@ namespace MusicLibrary.App.Desktop;
 internal static class DesktopTrackPlayer
 {
     private static readonly TimeSpan NetworkInitializationTimeout = TimeSpan.FromSeconds(15);
+    private static readonly Lazy<LibVLC> LibVlc = new(() => new LibVLC());
     private static readonly object PlaybackControlsLock = new();
     private static PlaybackControls? _playbackControls;
 
@@ -51,9 +53,44 @@ internal static class DesktopTrackPlayer
         }
     }
 
-    public static Task PlayStreamAsync(Uri streamUri, CancellationToken cancellationToken)
+    public static async Task PlayStreamAsync(Uri streamUri, CancellationToken cancellationToken)
     {
-        return PlaySourceAsync(streamUri.AbsoluteUri, cancellationToken);
+        using var media = new Media(LibVlc.Value, streamUri);
+        using var player = new MediaPlayer(media);
+        var controls = new PlaybackControls(
+            () => player.State switch
+            {
+                VLCState.Playing => Pause(player),
+                VLCState.Paused => Play(player),
+                _ => -1
+            },
+            () => player.State switch
+            {
+                VLCState.Playing => 1,
+                VLCState.Paused => 0,
+                _ => -1
+            });
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        player.EndReached += (_, _) => completion.TrySetResult();
+        player.Stopped += (_, _) => completion.TrySetResult();
+        player.EncounteredError += (_, _) =>
+            completion.TrySetException(new InvalidOperationException("LibVLC could not play the station stream."));
+        using var cancellationRegistration = cancellationToken.Register(player.Stop);
+        SetPlaybackControls(controls);
+        try
+        {
+            if (!player.Play())
+            {
+                throw new InvalidOperationException("LibVLC could not start the station stream.");
+            }
+
+            await completion.Task.WaitAsync(cancellationToken);
+        }
+        finally
+        {
+            ClearPlaybackControls(controls);
+            player.Stop();
+        }
     }
 
     private static async Task PlaySourceAsync(string source, CancellationToken cancellationToken)
@@ -196,6 +233,17 @@ internal static class DesktopTrackPlayer
     {
         player.Play();
         return 1;
+    }
+
+    private static int Pause(MediaPlayer player)
+    {
+        player.SetPause(true);
+        return 0;
+    }
+
+    private static int Play(MediaPlayer player)
+    {
+        return player.Play() ? 1 : -1;
     }
 
     private static void SetPlaybackControls(PlaybackControls controls)

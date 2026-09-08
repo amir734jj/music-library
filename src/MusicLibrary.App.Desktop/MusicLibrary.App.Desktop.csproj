@@ -8,9 +8,11 @@
   <ItemGroup>
     <ProjectReference Include="..\MusicLibrary.App\MusicLibrary.App.csproj" />
     <PackageReference Include="Avalonia.Desktop" Version="12.1.2" />
+    <PackageReference Include="LibVLCSharp" Version="3.10.1" />
     <PackageReference Include="NAudio" Version="2.2.1" />
     <PackageReference Include="SoundFlow" Version="1.4.1" />
     <PackageReference Include="Velopack" Version="1.2.0" />
+    <PackageReference Include="VideoLAN.LibVLC.Windows" Version="3.0.23.1" />
   </ItemGroup>
   <ItemGroup>
     <AvaloniaResource Include="Assets\icon.png" />

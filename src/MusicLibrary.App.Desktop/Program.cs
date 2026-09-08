@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -19,6 +20,8 @@ internal static class Program
     [STAThread]
     public static void Main(string[] args)
     {
+        if (RestartWithBundledLibVlc(args)) return;
+
         MusicLibraryApi.Configure(new Uri("https://music-library.coolify.hesamian.com/"));
         AppLogging.ConfigureFromApiAsync("desktop").GetAwaiter().GetResult();
         AppDomain.CurrentDomain.UnhandledException += (_, eventArgs) =>
@@ -99,6 +102,40 @@ internal static class Program
         {
             Log.CloseAndFlush();
         }
+    }
+
+    private static bool RestartWithBundledLibVlc(string[] args)
+    {
+        if (!OperatingSystem.IsLinux()) return false;
+
+        var vlcDirectory = Path.Combine(AppContext.BaseDirectory, "vlc");
+        var libraryDirectory = Path.Combine(vlcDirectory, "lib");
+        var pluginDirectory = Path.Combine(vlcDirectory, "plugins");
+        if (!Directory.Exists(libraryDirectory) || !Directory.Exists(pluginDirectory)) return false;
+        if (string.Equals(Environment.GetEnvironmentVariable("MUSIC_LIBRARY_LIBVLC_PATH"), libraryDirectory, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var executablePath = Environment.ProcessPath
+            ?? throw new InvalidOperationException("Could not determine the desktop application executable path.");
+        var startInfo = new ProcessStartInfo(executablePath)
+        {
+            UseShellExecute = false
+        };
+        foreach (var argument in args)
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
+
+        var existingLibraryPath = Environment.GetEnvironmentVariable("LD_LIBRARY_PATH");
+        startInfo.Environment["LD_LIBRARY_PATH"] = string.IsNullOrWhiteSpace(existingLibraryPath)
+            ? libraryDirectory
+            : $"{libraryDirectory}{Path.PathSeparator}{existingLibraryPath}";
+        startInfo.Environment["VLC_PLUGIN_PATH"] = pluginDirectory;
+        startInfo.Environment["MUSIC_LIBRARY_LIBVLC_PATH"] = libraryDirectory;
+        Process.Start(startInfo);
+        return true;
     }
 
     private static void StartNativePlayback(Func<CancellationToken, Task> play)

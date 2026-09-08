@@ -66,6 +66,13 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      - name: Install Linux LibVLC runtime
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libvlc-dev vlc-plugin-base
+
       - name: Publish desktop application
         shell: pwsh
         run: |
@@ -79,6 +86,19 @@ jobs:
             -p:PublishSingleFile=true `
             -p:IncludeNativeLibrariesForSelfExtract=true `
             -p:Version=$version
+
+          if ('${{ runner.os }}' -eq 'Linux') {
+            $systemLibraryDirectory = '/usr/lib/x86_64-linux-gnu'
+            $vlcDirectory = Join-Path $publishDirectory 'vlc'
+            $vlcLibraryDirectory = Join-Path $vlcDirectory 'lib'
+            $vlcPluginDirectory = Join-Path $vlcDirectory 'plugins'
+            New-Item -ItemType Directory -Force $vlcLibraryDirectory, $vlcPluginDirectory | Out-Null
+            Get-ChildItem "$systemLibraryDirectory/libvlc.so*", "$systemLibraryDirectory/libvlccore.so*" | ForEach-Object {
+              $source = if ($_.LinkType) { $_.ResolveLinkTarget($true).FullName } else { $_.FullName }
+              [System.IO.File]::Copy($source, (Join-Path $vlcLibraryDirectory $_.Name), $true)
+            }
+            Copy-Item "$systemLibraryDirectory/vlc/plugins/*" $vlcPluginDirectory -Recurse -Force
+          }
 
           dotnet tool install --global vpk --version 1.2.0
           if ('${{ runner.os }}' -eq 'Windows') {
