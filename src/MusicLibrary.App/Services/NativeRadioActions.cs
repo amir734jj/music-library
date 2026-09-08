@@ -4,6 +4,7 @@ public sealed record OfflineTrack(string Key, string Name, long SizeBytes, DateT
 
 public static class NativeRadioActions
 {
+    public static bool SupportsStreamRecorder { get; set; }
     public static Func<Uri, Task>? ListenAsync { get; set; }
     public static Func<Guid, Task>? ListenToStationAsync { get; set; }
     public static Func<Uri, TimeSpan, Task<string>>? DownloadAsync { get; set; }

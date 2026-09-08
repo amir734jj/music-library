@@ -66,7 +66,7 @@ public sealed partial class MainView : UserControl
         get { return !IsBrowserHost; }
     }
     public bool ShowOfflineMode => NativeRadioActions.ListOfflineTracksAsync is not null;
-    public bool ShowStreamRecorder => ShowNativeMedia && !ShowOfflineMode;
+    public bool ShowStreamRecorder => ShowNativeMedia && NativeRadioActions.SupportsStreamRecorder;
 
     public MainView() : this(showAdministration: false)
     {
@@ -547,6 +547,12 @@ public sealed partial class MainView : UserControl
         playButton.IsEnabled = false;
         try
         {
+            if (NativeRadioActions.ToggleFilePlaybackAsync is null)
+            {
+                await NativeRadioActions.PlayOfflineTrackAsync(track.Key);
+                NowPlayingStatus.Text = $"Opened {track.Name} in the desktop audio player.";
+                return;
+            }
             if (_playingOfflineTrackKey == track.Key && NativeRadioActions.ToggleFilePlaybackAsync is not null)
             {
                 _isCachedTrackPlaying = await NativeRadioActions.ToggleFilePlaybackAsync() == 1;
