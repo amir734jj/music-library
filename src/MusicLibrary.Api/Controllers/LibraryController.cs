@@ -158,7 +158,7 @@ public sealed class LibraryController(
         var observations = await repository.For<PlayObservation>().GetAll(
             filterExprs: filters,
             orderBy: Ordering<PlayObservation>.Desc(play => play.ObservedAt),
-            project: play => new NowPlayingSummary(play.StationId, play.Station.Name, play.Artist, play.Title, play.RawMetadata, play.ObservedAt, play.Confidence, null),
+            project: play => new NowPlayingSummary(play.StationId, play.Station.Name, play.Artist, play.Title, play.RawMetadata, play.ObservedAt, play.Confidence, play.Station.StreamUrl),
             maxResults: 10000);
         var config = await configService.GetAsync(cancellationToken);
         IEnumerable<CachedTrack> cachedTracks = [];
@@ -196,7 +196,11 @@ public sealed class LibraryController(
                         group.Count(),
                         group.Select(play => play.StationId).Distinct().Count(),
                         latest.ObservedAt,
+                        latest.StationId,
+                        latest.StationName,
+                        latest.StreamUrl,
                         cachedTrack?.BitrateKbps,
+                        cachedTrack?.DurationMs ?? EstimateDurationMs(cachedTrack),
                         cachedTrack?.Id,
                         cachedTrack?.ExpiresAt);
                 })
@@ -206,6 +210,12 @@ public sealed class LibraryController(
                 .ThenByDescending(trend => trend.LastObservedAt)
                 .Take(100)
         ];
+    }
+
+    private static int? EstimateDurationMs(CachedTrack? track)
+    {
+        if (track?.BitrateKbps is not > 0 || track.PlaintextLength <= 0) return null;
+        return Convert.ToInt32(Math.Round(track.PlaintextLength * 8d / track.BitrateKbps.Value));
     }
 
     [HttpGet("trending/{cachedTrackId:guid}/download")]

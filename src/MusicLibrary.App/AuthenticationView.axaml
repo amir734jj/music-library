@@ -1,4 +1,4 @@
-<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:Class="MusicLibrary.App.AuthenticationView">
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:Class="MusicLibrary.App.AuthenticationView" KeyDown="AuthenticationView_KeyDown">
   <Border Classes="panel" MaxWidth="380" HorizontalAlignment="Stretch" VerticalAlignment="Center" Padding="24">
     <StackPanel Spacing="12">
       <TextBlock Text="Music Library" FontSize="24" FontWeight="SemiBold" />

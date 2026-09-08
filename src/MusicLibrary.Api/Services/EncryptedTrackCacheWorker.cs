@@ -137,6 +137,7 @@ public sealed class EncryptedTrackCacheWorker(
             ContentType = audioInfo.ContentType,
             PlaintextLength = audio.Length,
             BitrateKbps = audioInfo.BitrateKbps,
+            DurationMs = audioInfo.DurationMs,
             KeyFingerprint = TrackCacheCryptography.GetFingerprint(key),
             CreatedAt = createdAt,
             ExpiresAt = createdAt.AddHours(config.TrendingCacheRetentionHours)

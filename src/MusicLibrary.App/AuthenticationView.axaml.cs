@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using MusicLibrary.App.Services;
 using MusicLibrary.Contracts.Requests;
@@ -24,6 +25,13 @@ public sealed partial class AuthenticationView : UserControl
 
     private void AuthenticationSubmit_Click(object? sender, RoutedEventArgs eventArgs)
     {
+        _ = AuthenticationSubmitAsync();
+    }
+
+    private void AuthenticationView_KeyDown(object? sender, KeyEventArgs eventArgs)
+    {
+        if (eventArgs.Key != Key.Enter || !AuthenticationSubmitButton.IsEnabled) return;
+        eventArgs.Handled = true;
         _ = AuthenticationSubmitAsync();
     }
 

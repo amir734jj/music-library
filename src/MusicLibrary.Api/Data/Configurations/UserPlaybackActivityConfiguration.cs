@@ -8,6 +8,7 @@ public sealed class UserPlaybackActivityConfiguration : IEntityTypeConfiguration
     public void Configure(EntityTypeBuilder<UserPlaybackActivity> builder)
     {
         builder.HasKey(activity => activity.UserId);
+        builder.Property(activity => activity.UserId).ValueGeneratedNever();
         builder.Property(activity => activity.PlaybackDescription).HasMaxLength(300);
         builder.HasIndex(activity => activity.LastHeartbeatAt);
         builder.HasOne(activity => activity.User)

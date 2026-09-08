@@ -4,7 +4,7 @@ internal static class TrackAudioValidation
 {
     public static bool TryAnalyze(byte[] content, out TrackAudioInfo audioInfo)
     {
-        audioInfo = new TrackAudioInfo(string.Empty, 0);
+        audioInfo = new TrackAudioInfo(string.Empty, 0, 0);
         try
         {
             using var stream = new MemoryStream(content, writable: false);
@@ -22,7 +22,10 @@ internal static class TrackAudioValidation
             };
             if (contentType.Length == 0) return false;
 
-            audioInfo = new TrackAudioInfo(contentType, Convert.ToInt32(Math.Round(Convert.ToDouble(track.Bitrate))));
+            audioInfo = new TrackAudioInfo(
+                contentType,
+                Convert.ToInt32(Math.Round(Convert.ToDouble(track.Bitrate))),
+                Convert.ToInt32(Math.Round(track.DurationMs)));
             return true;
         }
         catch (Exception)

@@ -1008,6 +1008,28 @@ public sealed partial class MainView : UserControl
         ToolTip.SetTip(playButton, cachedUntilText is not null
             ? $"Play cached recording (available until {cachedUntilText})"
             : "Recording is not ready yet");
+        var hasDirectStream = Uri.TryCreate(trend.LastStationStreamUrl, UriKind.Absolute, out var streamUri)
+            && (streamUri.Scheme == Uri.UriSchemeHttp || streamUri.Scheme == Uri.UriSchemeHttps)
+            && NativeRadioActions.ListenAsync is not null;
+        Button? listenButton = null;
+        if (hasDirectStream || NativeRadioActions.ListenToStationAsync is not null)
+        {
+            listenButton = new Button
+            {
+                Content = CreateActionIcon("mdi-radio-tower"),
+                Width = 36,
+                Height = 32
+            };
+            listenButton.Classes.Add("playback");
+            var isPlaying = _playingStationId == trend.LastStationId;
+            if (isPlaying) _playingStationButton = listenButton;
+            SetStationButtonState(listenButton, isPlaying, trend.LastStationName);
+            listenButton.Click += async (_, _) => await ListenToNowPlayingStationAsync(
+                trend.LastStationId,
+                streamUri,
+                trend.LastStationName,
+                listenButton);
+        }
         var downloadButton = new Button
         {
             Content = CreateActionIcon("mdi-download"),
@@ -1029,6 +1051,7 @@ public sealed partial class MainView : UserControl
             downloadButton.Click += async (_, _) => await DownloadTrendingTrackAsync(cachedTrackId, downloadButton);
         }
         actions.Children.Add(playButton);
+        if (listenButton is not null) actions.Children.Add(listenButton);
         actions.Children.Add(downloadButton);
         Grid.SetColumn(actions, 4);
         Grid.SetRowSpan(actions, 2);
@@ -1060,7 +1083,7 @@ public sealed partial class MainView : UserControl
                 {
                     _isCachedTrackPlaying = playbackState == 1;
                     SetPlaybackButtonState(playButton, _isCachedTrackPlaying);
-                    ShowPlaybackDock(GetTrackDisplayName(trend), "Trending recording", _isCachedTrackPlaying, isLiveStation: false);
+                    ShowPlaybackDock(GetTrackDisplayName(trend), GetTrendingPlaybackSubtitle(trend), _isCachedTrackPlaying, isLiveStation: false);
                     if (_isCachedTrackPlaying)
                     {
                         PublishPlaybackActivity(GetTrackDisplayName(trend), isLiveStation: false);
@@ -1083,7 +1106,7 @@ public sealed partial class MainView : UserControl
             _playingCachedTrackButton = playButton;
             _isCachedTrackPlaying = NativeRadioActions.ToggleFilePlaybackAsync is not null;
             SetPlaybackButtonState(playButton, _isCachedTrackPlaying);
-            ShowPlaybackDock(GetTrackDisplayName(trend), "Trending recording", _isCachedTrackPlaying, isLiveStation: false);
+            ShowPlaybackDock(GetTrackDisplayName(trend), GetTrendingPlaybackSubtitle(trend), _isCachedTrackPlaying, isLiveStation: false);
             PublishPlaybackActivity(GetTrackDisplayName(trend), isLiveStation: false);
             NowPlayingStatus.Text = $"Playing {download.FileName}";
         }
@@ -1308,6 +1331,21 @@ public sealed partial class MainView : UserControl
     private static string GetTrackDisplayName(TrendingSummary trend) =>
         string.IsNullOrWhiteSpace(trend.Title) ? trend.Artist : $"{trend.Artist} - {trend.Title}";
 
+    private static string GetTrendingPlaybackSubtitle(TrendingSummary trend)
+    {
+        var formatted = FormatTrackDuration(trend.DurationMs);
+        return formatted is null ? "Trending recording" : $"Trending recording | {formatted}";
+    }
+
+    private static string? FormatTrackDuration(int? durationMs)
+    {
+        if (durationMs is not > 0) return null;
+        var duration = TimeSpan.FromMilliseconds(durationMs.Value);
+        return duration.TotalHours >= 1
+            ? duration.ToString(@"h\:mm\:ss")
+            : duration.ToString(@"m\:ss");
+    }
+
     private static string FormatRelativeTime(DateTimeOffset timestamp)
     {
         var elapsed = DateTimeOffset.UtcNow - timestamp.ToUniversalTime();
@@ -1481,7 +1519,10 @@ public sealed partial class MainView : UserControl
                     {
                         var download = await MusicLibraryApi.DownloadTrendingTrackAsync(trend.CachedTrackId!.Value, cancellation.Token);
                         ClearPlaybackState();
-                        ShowPlaybackDock(GetTrackDisplayName(trend), $"Trending playlist | Track {index + 1} of {cachedTracks.Count}", isPlaying: true, isLiveStation: false);
+                        var duration = FormatTrackDuration(trend.DurationMs);
+                        var subtitle = $"Trending playlist | Track {index + 1} of {cachedTracks.Count}";
+                        if (duration is not null) subtitle += $" | {duration}";
+                        ShowPlaybackDock(GetTrackDisplayName(trend), subtitle, isPlaying: true, isLiveStation: false);
                         PlaybackDockButton.Content = CreateActionIcon("mdi-stop");
                         ToolTip.SetTip(PlaybackDockButton, "Stop trending playback");
                         PublishPlaybackActivity(GetTrackDisplayName(trend), isLiveStation: false);

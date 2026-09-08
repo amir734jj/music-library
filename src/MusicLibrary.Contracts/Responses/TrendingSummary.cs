@@ -6,6 +6,10 @@ public sealed record TrendingSummary(
     int ObservationCount,
     int StationCount,
     DateTimeOffset LastObservedAt,
+    Guid LastStationId,
+    string LastStationName,
+    string? LastStationStreamUrl,
     int? BitrateKbps,
+    int? DurationMs,
     Guid? CachedTrackId,
     DateTimeOffset? CachedUntil);
