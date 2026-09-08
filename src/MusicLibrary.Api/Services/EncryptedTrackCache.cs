@@ -53,23 +53,51 @@ public interface IEncryptedTrackCacheService
 
 public sealed class EncryptedTrackCacheService(
     IGlobalConfigService configService,
-    IEfRepository repository) : IEncryptedTrackCacheService
+    IEfRepository repository,
+    TrackCacheStorage storage,
+    ILogger<EncryptedTrackCacheService> logger) : IEncryptedTrackCacheService
 {
     public async Task<CachedTrackDownload?> GetAsync(Guid id, CancellationToken cancellationToken)
     {
         var cachedTrack = await repository.For<CachedTrack>().Get<Guid>(id);
-        if (cachedTrack is null || cachedTrack.ExpiresAt <= DateTimeOffset.UtcNow || !File.Exists(cachedTrack.FilePath)) return null;
+        if (cachedTrack is null) return null;
+        if (cachedTrack.ExpiresAt <= DateTimeOffset.UtcNow || !File.Exists(cachedTrack.FilePath))
+        {
+            await storage.RemoveAsync(repository, cachedTrack, cancellationToken);
+            return null;
+        }
 
         var config = await configService.GetAsync(cancellationToken);
-        if (!TrackCacheCryptography.TryGetKey(config.TrendingCacheEncryptionKey, out var key)
-            || cachedTrack.KeyFingerprint != TrackCacheCryptography.GetFingerprint(key)) return null;
+        if (!TrackCacheCryptography.TryGetKey(config.TrendingCacheEncryptionKey, out var key)) return null;
+        if (cachedTrack.KeyFingerprint != TrackCacheCryptography.GetFingerprint(key))
+        {
+            await storage.RemoveAsync(repository, cachedTrack, cancellationToken);
+            return null;
+        }
 
-        var encrypted = await File.ReadAllBytesAsync(cachedTrack.FilePath, cancellationToken);
-        var content = TrackCacheCryptography.Decrypt(encrypted, key);
+        byte[] content;
+        try
+        {
+            var encrypted = await File.ReadAllBytesAsync(cachedTrack.FilePath, cancellationToken);
+            content = TrackCacheCryptography.Decrypt(encrypted, key);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or CryptographicException)
+        {
+            logger.LogWarning(exception, "Removing unreadable cached track {CachedTrackId}.", cachedTrack.Id);
+            await storage.RemoveAsync(repository, cachedTrack, cancellationToken);
+            return null;
+        }
+        if (!TrackAudioValidation.TryGetContentType(content, out var contentType))
+        {
+            logger.LogWarning("Removing cached track {CachedTrackId} because its audio format is invalid.", cachedTrack.Id);
+            await storage.RemoveAsync(repository, cachedTrack, cancellationToken);
+            return null;
+        }
+
         var name = string.IsNullOrWhiteSpace(cachedTrack.Title)
             ? cachedTrack.Artist
             : $"{cachedTrack.Artist} - {cachedTrack.Title}";
-        return new CachedTrackDownload(content, cachedTrack.ContentType, $"{SanitizeFileName(name)}{GetExtension(cachedTrack.ContentType)}");
+        return new CachedTrackDownload(content, contentType, $"{SanitizeFileName(name)}{GetExtension(contentType)}");
     }
 
     private static string SanitizeFileName(string value)
@@ -82,6 +110,7 @@ public sealed class EncryptedTrackCacheService(
     private static string GetExtension(string contentType) => contentType.ToLowerInvariant() switch
     {
         "audio/aac" or "audio/aacp" => ".aac",
+        "audio/flac" => ".flac",
         "audio/ogg" => ".ogg",
         _ => ".mp3"
     };
@@ -119,6 +148,32 @@ public sealed class TrackCacheStorage(IConfiguration configuration)
                 File.Delete(track.FilePath);
                 throw;
             }
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task RemoveAsync(
+        IEfRepository repository,
+        CachedTrack track,
+        CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            try
+            {
+                File.Delete(track.FilePath);
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+            await repository.For<CachedTrack>().Delete([candidate => candidate.Id == track.Id]);
         }
         finally
         {
@@ -346,7 +401,12 @@ public sealed class EncryptedTrackCacheWorker(
             request,
             TimeSpan.FromSeconds(config.TrendingCacheCaptureTimeoutSeconds),
             cancellationToken);
-        if (audio is null || audio.Length == 0) return;
+        if (audio is null) return;
+        if (!TrackAudioValidation.TryGetContentType(audio, out var contentType))
+        {
+            logger.LogWarning("Discarding invalid capture for {Artist} - {Title}.", request.Artist, request.Title);
+            return;
+        }
         var id = Guid.NewGuid();
         var path = Path.Combine(storage.CacheDirectory, $"{id:N}.cache");
         var encrypted = TrackCacheCryptography.Encrypt(audio, key);
@@ -360,7 +420,7 @@ public sealed class EncryptedTrackCacheWorker(
             NormalizedArtist = normalizedArtist,
             NormalizedTitle = normalizedTitle,
             FilePath = path,
-            ContentType = "audio/mpeg",
+            ContentType = contentType,
             PlaintextLength = audio.Length,
             KeyFingerprint = TrackCacheCryptography.GetFingerprint(key),
             CreatedAt = createdAt,
@@ -411,6 +471,50 @@ public sealed class EncryptedTrackCacheWorker(
         var matchesTitle = string.IsNullOrWhiteSpace(request.Title)
             || string.Equals(title?.Trim(), request.Title.Trim(), StringComparison.OrdinalIgnoreCase);
         return matchesArtist && matchesTitle;
+    }
+}
+
+internal static class TrackAudioValidation
+{
+    private const int MinimumAudioBytes = 1024;
+    private const int HeaderScanBytes = 64 * 1024;
+
+    public static bool TryGetContentType(ReadOnlySpan<byte> content, out string contentType)
+    {
+        contentType = string.Empty;
+        if (content.Length < MinimumAudioBytes) return false;
+        if (content.StartsWith("OggS"u8))
+        {
+            contentType = "audio/ogg";
+            return true;
+        }
+        if (content.StartsWith("fLaC"u8))
+        {
+            contentType = "audio/flac";
+            return true;
+        }
+
+        var scanLength = Math.Min(content.Length - 2, HeaderScanBytes);
+        for (var index = 0; index < scanLength; index++)
+        {
+            if (content[index] != 0xff) continue;
+            var second = content[index + 1];
+            if ((second & 0xf6) == 0xf0)
+            {
+                contentType = "audio/aac";
+                return true;
+            }
+            if ((second & 0xe0) != 0xe0 || ((second >> 3) & 0x03) == 0x01 || ((second >> 1) & 0x03) == 0) continue;
+            var third = content[index + 2];
+            var bitrateIndex = (third >> 4) & 0x0f;
+            var sampleRateIndex = (third >> 2) & 0x03;
+            if (bitrateIndex is > 0 and < 0x0f && sampleRateIndex != 0x03)
+            {
+                contentType = "audio/mpeg";
+                return true;
+            }
+        }
+        return false;
     }
 }
 
