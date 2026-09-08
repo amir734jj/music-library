@@ -40,10 +40,6 @@ internal static class Program
                 DesktopSettingsStorage.SaveOfflineDirectory(offlineDirectory);
                 return Task.CompletedTask;
             };
-            using (var iconStream = AssetLoader.Open(new Uri("avares://MusicLibrary.App.Desktop/Assets/icon.png")))
-            {
-                AppIcon.Icon = new WindowIcon(iconStream);
-            }
             NativeRadioActions.ListenAsync = streamUri =>
             {
                 StartNativePlayback(cancellation => DesktopTrackPlayer.PlayStreamAsync(streamUri, cancellation));
@@ -75,7 +71,13 @@ internal static class Program
                 return Task.CompletedTask;
             };
             _ = Task.Run(UpdateDesktopAppAsync);
-            BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+            BuildAvaloniaApp()
+                .AfterSetup(_ =>
+                {
+                    using var iconStream = AssetLoader.Open(new Uri("avares://MusicLibrary.App.Desktop/Assets/icon.png"));
+                    AppIcon.Icon = new WindowIcon(iconStream);
+                })
+                .StartWithClassicDesktopLifetime(args);
         }
         catch (Exception exception)
         {
