@@ -1,10 +1,14 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Layout;
 using Avalonia.Platform;
+using Avalonia.Threading;
 using MusicLibrary.App;
 using MusicLibrary.App.Services;
 using Serilog;
 using Velopack;
+using Velopack.Sources;
 
 namespace MusicLibrary.App.Desktop;
 
@@ -70,12 +74,12 @@ internal static class Program
                 File.Delete(ResolveOfflineTrackPath(offlineDirectory, key));
                 return Task.CompletedTask;
             };
-            _ = Task.Run(UpdateDesktopAppAsync);
             BuildAvaloniaApp()
                 .AfterSetup(_ =>
                 {
                     using var iconStream = AssetLoader.Open(new Uri("avares://MusicLibrary.App.Desktop/Assets/icon.png"));
                     AppIcon.Icon = new WindowIcon(iconStream);
+                    _ = Task.Run(UpdateDesktopAppAsync);
                 })
                 .StartWithClassicDesktopLifetime(args);
         }
@@ -174,11 +178,13 @@ internal static class Program
     {
         try
         {
-            var updateManager = new UpdateManager("https://github.com/amir734jj/music-library/releases/download/latest");
+            var source = new GithubSource("https://github.com/amir734jj/music-library", null, prerelease: true);
+            var updateManager = new UpdateManager(source);
             if (!updateManager.IsInstalled) return;
 
             var update = await updateManager.CheckForUpdatesAsync();
             if (update is null) return;
+            if (!await ConfirmUpdateAsync(update.TargetFullRelease.Version.ToString())) return;
 
             await updateManager.DownloadUpdatesAsync(update);
             updateManager.ApplyUpdatesAndRestart(update.TargetFullRelease);
@@ -187,6 +193,62 @@ internal static class Program
         {
             Log.Warning(exception, "Desktop update check failed");
         }
+    }
+
+    private static Task<bool> ConfirmUpdateAsync(string version)
+    {
+        var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Dispatcher.UIThread.Post(async () =>
+        {
+            try
+            {
+                var owner = (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.MainWindow;
+                if (owner is null)
+                {
+                    completion.TrySetResult(false);
+                    return;
+                }
+
+                var downloadButton = new Button { Content = "Download and restart" };
+                var laterButton = new Button { Content = "Later" };
+                var dialog = new Window
+                {
+                    Title = "Music Library update",
+                    Width = 420,
+                    SizeToContent = SizeToContent.Height,
+                    CanResize = false,
+                    WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                    Content = new StackPanel
+                    {
+                        Margin = new Thickness(24),
+                        Spacing = 16,
+                        Children =
+                        {
+                            new TextBlock
+                            {
+                                Text = $"Music Library {version} is available. Download it and restart now?",
+                                TextWrapping = Avalonia.Media.TextWrapping.Wrap
+                            },
+                            new StackPanel
+                            {
+                                Orientation = Orientation.Horizontal,
+                                HorizontalAlignment = HorizontalAlignment.Right,
+                                Spacing = 8,
+                                Children = { laterButton, downloadButton }
+                            }
+                        }
+                    }
+                };
+                laterButton.Click += (_, _) => dialog.Close(false);
+                downloadButton.Click += (_, _) => dialog.Close(true);
+                completion.TrySetResult(await dialog.ShowDialog<bool>(owner));
+            }
+            catch (Exception exception)
+            {
+                completion.TrySetException(exception);
+            }
+        });
+        return completion.Task;
     }
 
     public static AppBuilder BuildAvaloniaApp()

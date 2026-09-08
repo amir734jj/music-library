@@ -54,8 +54,7 @@ jobs:
         include:
           - os: ubuntu-latest
             runtime: linux-x64
-            archive: music-library-linux-x64.tar.gz
-            artifact_path: artifacts/music-library-linux-x64.tar.gz
+            artifact_path: artifacts/linux-x64/releases/*
           - os: windows-latest
             runtime: win-x64
             artifact_path: artifacts/win-x64/releases/*
@@ -81,8 +80,8 @@ jobs:
             -p:IncludeNativeLibrariesForSelfExtract=true `
             -p:Version=$version
 
+          dotnet tool install --global vpk --version 1.2.0
           if ('${{ runner.os }}' -eq 'Windows') {
-            dotnet tool install --global vpk --version 1.2.0
             vpk pack `
               --packId MusicLibrary `
               --packVersion $version `
@@ -92,7 +91,15 @@ jobs:
               --runtime win-x64 `
               --outputDir artifacts/win-x64/releases
           } else {
-            tar -czf "artifacts/${{ matrix.archive }}" -C $publishDirectory .
+            vpk pack `
+              --packId MusicLibrary.Linux `
+              --packVersion $version `
+              --packDir $publishDirectory `
+              --mainExe MusicLibrary.App.Desktop `
+              --packTitle "Music Library" `
+              --runtime linux-x64 `
+              --icon src/MusicLibrary.App.Desktop/Assets/icon.png `
+              --outputDir artifacts/linux-x64/releases
           }
 
       - name: Upload desktop artifact
@@ -124,4 +131,4 @@ jobs:
             --target "$GITHUB_SHA" \
             --title "Latest" \
             --prerelease \
-            --notes "Latest Android APK, Velopack Windows installer, and Linux application build."
+            --notes "Latest Android APK, Velopack Windows installer, and self-updating Linux AppImage."

@@ -1,6 +1,10 @@
-using System.ComponentModel;
-using System.Diagnostics;
 using NAudio.Wave;
+using SoundFlow.Abstracts;
+using SoundFlow.Backends.MiniAudio;
+using SoundFlow.Components;
+using SoundFlow.Interfaces;
+using SoundFlow.Providers;
+using SoundFlow.Structs;
 
 namespace MusicLibrary.App.Desktop;
 
@@ -36,7 +40,7 @@ internal static class DesktopTrackPlayer
     {
         if (!OperatingSystem.IsWindows())
         {
-            await PlayWithCommandAsync(source, cancellationToken);
+            await PlayWithMiniAudioAsync(source, cancellationToken);
             return;
         }
 
@@ -59,44 +63,30 @@ internal static class DesktopTrackPlayer
         await completion.Task.WaitAsync(cancellationToken);
     }
 
-    private static async Task PlayWithCommandAsync(string path, CancellationToken cancellationToken)
+    private static async Task PlayWithMiniAudioAsync(string source, CancellationToken cancellationToken)
     {
-        var players = new[]
-        {
-            (Command: "mpv", Arguments: ["--no-video", "--really-quiet"]),
-            (Command: "ffplay", Arguments: ["-nodisp", "-autoexit", "-loglevel", "quiet"]),
-            (Command: "cvlc", Arguments: new[] { "--play-and-exit", "--intf", "dummy" })
-        };
-
-        foreach (var player in players)
-        {
-            try
-            {
-                var startInfo = new ProcessStartInfo(player.Command) { UseShellExecute = false };
-                foreach (var argument in player.Arguments) startInfo.ArgumentList.Add(argument);
-                startInfo.ArgumentList.Add(path);
-                using var process = Process.Start(startInfo);
-                if (process is null) continue;
-                await using var cancellationRegistration = cancellationToken.Register(() => TryKill(process));
-                await process.WaitForExitAsync(cancellationToken);
-                if (process.ExitCode == 0) return;
-            }
-            catch (Win32Exception)
-            {
-            }
-        }
-
-        throw new InvalidOperationException("Continuous playback requires mpv, ffplay, or VLC on Linux.");
-    }
-
-    private static void TryKill(Process process)
-    {
+        using AudioEngine engine = new MiniAudioEngine();
+        var format = AudioFormat.DvdHq;
+        using ISoundDataProvider provider = Uri.TryCreate(source, UriKind.Absolute, out var uri)
+            && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
+                ? new NetworkDataProvider(engine, format, source)
+                : new AssetDataProvider(engine, source);
+        using var output = engine.InitializePlaybackDevice(null, format);
+        using var player = new SoundPlayer(engine, format, provider);
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        provider.EndOfStreamReached += (_, _) => completion.TrySetResult();
+        output.MasterMixer.AddComponent(player);
         try
         {
-            if (!process.HasExited) process.Kill(entireProcessTree: true);
+            output.Start();
+            player.Play();
+            await completion.Task.WaitAsync(cancellationToken);
         }
-        catch (InvalidOperationException)
+        finally
         {
+            player.Stop();
+            output.Stop();
+            output.MasterMixer.RemoveComponent(player);
         }
     }
 }
