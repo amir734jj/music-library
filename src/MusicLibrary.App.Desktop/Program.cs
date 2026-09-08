@@ -1,5 +1,7 @@
 using Avalonia;
-using System.Diagnostics;
+using Avalonia.Controls;
+using Avalonia.Platform;
+using MusicLibrary.App;
 using MusicLibrary.App.Services;
 using Serilog;
 using Velopack;
@@ -8,6 +10,8 @@ namespace MusicLibrary.App.Desktop;
 
 internal static class Program
 {
+    private static CancellationTokenSource? _playbackCancellation;
+
     [STAThread]
     public static void Main(string[] args)
     {
@@ -27,31 +31,43 @@ internal static class Program
             VelopackApp.Build().Run();
             AuthenticationSessionStorage.Load = DesktopAuthenticationSessionStorage.Load;
             AuthenticationSessionStorage.Save = DesktopAuthenticationSessionStorage.Save;
-            var offlineDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyMusic), "Music Library");
-            NativeRadioActions.SupportsStreamRecorder = true;
-            NativeRadioActions.ListenAsync = streamUri =>
+            var offlineDirectory = ResolveOfflineDirectory();
+            NativeRadioActions.OfflineDirectoryPath = offlineDirectory;
+            NativeRadioActions.SetOfflineDirectoryAsync = newDirectory =>
             {
-                Process.Start(new ProcessStartInfo(streamUri.AbsoluteUri) { UseShellExecute = true });
+                offlineDirectory = MoveOfflineDirectory(offlineDirectory, newDirectory);
+                NativeRadioActions.OfflineDirectoryPath = offlineDirectory;
+                DesktopSettingsStorage.SaveOfflineDirectory(offlineDirectory);
                 return Task.CompletedTask;
             };
-            NativeRadioActions.DownloadAsync = (streamUri, duration) => NativeStreamDownloader.DownloadAsync(streamUri,
-                offlineDirectory, duration);
-            NativeRadioActions.PlayFileAsync = async (content, _, fileName) =>
+            using (var iconStream = AssetLoader.Open(new Uri("avares://MusicLibrary.App.Desktop/Assets/icon.png")))
             {
-                var directory = Path.Combine(Path.GetTempPath(), "Music Library");
-                Directory.CreateDirectory(directory);
-                var temporaryPath = Path.Combine(directory, $"{Guid.NewGuid():N}{Path.GetExtension(Path.GetFileName(fileName))}");
-                await File.WriteAllBytesAsync(temporaryPath, content);
-                Process.Start(new ProcessStartInfo(temporaryPath) { UseShellExecute = true });
+                AppIcon.Icon = new WindowIcon(iconStream);
+            }
+            NativeRadioActions.ListenAsync = streamUri =>
+            {
+                StartNativePlayback(cancellation => DesktopTrackPlayer.PlayStreamAsync(streamUri, cancellation));
+                return Task.CompletedTask;
+            };
+            NativeRadioActions.PlayFileAsync = (content, contentType, fileName) =>
+            {
+                StartNativePlayback(cancellation => DesktopTrackPlayer.PlayToCompletionAsync(content, contentType, fileName, cancellation));
+                return Task.CompletedTask;
             };
             NativeRadioActions.PlayFileToCompletionAsync = DesktopTrackPlayer.PlayToCompletionAsync;
+            NativeRadioActions.StopPlaybackAsync = () =>
+            {
+                _playbackCancellation?.Cancel();
+                return Task.CompletedTask;
+            };
             NativeRadioActions.SaveFileAsync = (content, _, fileName) =>
                 NativeStreamDownloader.SaveAsync(content, fileName, offlineDirectory);
             NativeRadioActions.ListOfflineTracksAsync = () => ListOfflineTracksAsync(offlineDirectory);
-            NativeRadioActions.PlayOfflineTrackAsync = key =>
+            NativeRadioActions.PlayOfflineTrackAsync = async key =>
             {
-                Process.Start(new ProcessStartInfo(ResolveOfflineTrackPath(offlineDirectory, key)) { UseShellExecute = true });
-                return Task.CompletedTask;
+                var path = ResolveOfflineTrackPath(offlineDirectory, key);
+                var content = await File.ReadAllBytesAsync(path);
+                StartNativePlayback(cancellation => DesktopTrackPlayer.PlayToCompletionAsync(content, "audio/mpeg", Path.GetFileName(path), cancellation));
             };
             NativeRadioActions.DeleteOfflineTrackAsync = key =>
             {
@@ -70,6 +86,55 @@ internal static class Program
         {
             Log.CloseAndFlush();
         }
+    }
+
+    private static void StartNativePlayback(Func<CancellationToken, Task> play)
+    {
+        _playbackCancellation?.Cancel();
+        var cancellation = new CancellationTokenSource();
+        _playbackCancellation = cancellation;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await play(cancellation.Token);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception exception)
+            {
+                Log.Warning(exception, "Desktop native playback failed");
+            }
+        });
+    }
+
+    private static string ResolveOfflineDirectory()
+    {
+        var savedDirectory = DesktopSettingsStorage.LoadOfflineDirectory();
+        var directory = string.IsNullOrWhiteSpace(savedDirectory)
+            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyMusic), "Music Library")
+            : savedDirectory;
+        Directory.CreateDirectory(directory);
+        return directory;
+    }
+
+    private static string MoveOfflineDirectory(string currentDirectory, string newDirectory)
+    {
+        newDirectory = Path.GetFullPath(newDirectory);
+        Directory.CreateDirectory(newDirectory);
+        if (string.Equals(Path.GetFullPath(currentDirectory), newDirectory, StringComparison.Ordinal)) return newDirectory;
+
+        if (Directory.Exists(currentDirectory))
+        {
+            foreach (var file in Directory.EnumerateFiles(currentDirectory))
+            {
+                var destination = Path.Combine(newDirectory, Path.GetFileName(file));
+                if (!File.Exists(destination)) File.Move(file, destination);
+            }
+        }
+
+        return newDirectory;
     }
 
     private static Task<IReadOnlyList<OfflineTrack>> ListOfflineTracksAsync(string directory)

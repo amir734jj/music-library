@@ -7,5 +7,6 @@ public sealed partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        Icon = AppIcon.Icon;
     }
 }

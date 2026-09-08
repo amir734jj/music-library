@@ -19,34 +19,44 @@ internal static class DesktopTrackPlayer
 
         try
         {
-            if (!OperatingSystem.IsWindows())
-            {
-                await PlayWithCommandAsync(temporaryPath, cancellationToken);
-                return;
-            }
-
-            await using var reader = new MediaFoundationReader(temporaryPath);
-            using var output = new WaveOutEvent();
-            var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            output.PlaybackStopped += (_, eventArgs) =>
-            {
-                if (eventArgs.Exception is not null)
-                {
-                    completion.TrySetException(eventArgs.Exception);
-                    return;
-                }
-
-                completion.TrySetResult();
-            };
-            await using var cancellationRegistration = cancellationToken.Register(output.Stop);
-            output.Init(reader);
-            output.Play();
-            await completion.Task.WaitAsync(cancellationToken);
+            await PlaySourceAsync(temporaryPath, cancellationToken);
         }
         finally
         {
             File.Delete(temporaryPath);
         }
+    }
+
+    public static Task PlayStreamAsync(Uri streamUri, CancellationToken cancellationToken)
+    {
+        return PlaySourceAsync(streamUri.AbsoluteUri, cancellationToken);
+    }
+
+    private static async Task PlaySourceAsync(string source, CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            await PlayWithCommandAsync(source, cancellationToken);
+            return;
+        }
+
+        await using var reader = new MediaFoundationReader(source);
+        using var output = new WaveOutEvent();
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        output.PlaybackStopped += (_, eventArgs) =>
+        {
+            if (eventArgs.Exception is not null)
+            {
+                completion.TrySetException(eventArgs.Exception);
+                return;
+            }
+
+            completion.TrySetResult();
+        };
+        await using var cancellationRegistration = cancellationToken.Register(output.Stop);
+        output.Init(reader);
+        output.Play();
+        await completion.Task.WaitAsync(cancellationToken);
     }
 
     private static async Task PlayWithCommandAsync(string path, CancellationToken cancellationToken)

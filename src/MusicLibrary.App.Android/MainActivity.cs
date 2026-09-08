@@ -45,11 +45,6 @@ public sealed class MainActivity : AvaloniaMainActivity
                 throw;
             }
         };
-        NativeRadioActions.DownloadAsync = (streamUri, duration) =>
-        {
-            var directory = GetExternalFilesDir(global::Android.OS.Environment.DirectoryMusic)?.AbsolutePath ?? FilesDir!.AbsolutePath;
-            return NativeStreamDownloader.DownloadAsync(streamUri, directory, duration);
-        };
         NativeRadioActions.PlayFileAsync = async (content, _, fileName) =>
         {
             ReleaseCachedTrackPlayer();
@@ -101,6 +96,7 @@ public sealed class MainActivity : AvaloniaMainActivity
         NativeRadioActions.ListOfflineTracksAsync = ListOfflineTracksAsync;
         NativeRadioActions.PlayOfflineTrackAsync = PlayOfflineTrackAsync;
         NativeRadioActions.DeleteOfflineTrackAsync = DeleteOfflineTrackAsync;
+        NativeRadioActions.OfflineDirectoryPath = GetOfflineDirectory();
         base.OnCreate(savedInstanceState);
     }
 

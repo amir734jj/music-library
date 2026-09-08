@@ -4,10 +4,10 @@ public sealed record OfflineTrack(string Key, string Name, long SizeBytes, DateT
 
 public static class NativeRadioActions
 {
-    public static bool SupportsStreamRecorder { get; set; }
+    public static string? OfflineDirectoryPath { get; set; }
+    public static Func<string, Task>? SetOfflineDirectoryAsync { get; set; }
     public static Func<Uri, Task>? ListenAsync { get; set; }
     public static Func<Guid, Task>? ListenToStationAsync { get; set; }
-    public static Func<Uri, TimeSpan, Task<string>>? DownloadAsync { get; set; }
     public static Func<byte[], string, string, Task>? PlayFileAsync { get; set; }
     public static Func<byte[], string, string, CancellationToken, Task>? PlayFileToCompletionAsync { get; set; }
     public static Func<Task<int>>? ToggleFilePlaybackAsync { get; set; }

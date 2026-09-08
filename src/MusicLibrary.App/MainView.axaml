@@ -43,22 +43,12 @@
                 </StackPanel>
               </Button>
               <Button Name="DownloadAllTrendingButton" Grid.Column="3" Content="Download all" IsVisible="False" Click="DownloadAllTrending_Click" />
+              <Button Name="ChangeOfflineDirectoryButton" Grid.Column="3" Content="Change folder" IsVisible="False" Click="ChangeOfflineDirectory_Click" />
             </Grid>
             <TextBlock Grid.Row="2" Name="NowPlayingStatus" Text="Loading live observations..." Opacity="0.7" TextWrapping="Wrap" />
             <ScrollViewer Grid.Row="4" Name="NowPlayingScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
               <ItemsControl Name="NowPlayingList" Margin="0,0,16,0" />
             </ScrollViewer>
-          </Grid>
-        </Border>
-        <Border Grid.Row="4" Classes="panel" IsVisible="{Binding ShowStreamRecorder, ElementName=Root}">
-          <Grid ColumnDefinitions="*,8,140,8,Auto,8,Auto" RowDefinitions="Auto,6,Auto,4,Auto,6,Auto">
-            <TextBlock Grid.ColumnSpan="7" Text="Record a station stream" FontWeight="SemiBold" />
-            <TextBox Grid.Row="2" Name="StreamUrlInput" PlaceholderText="Stream URL" />
-            <TextBlock Grid.Row="2" Grid.Column="2" Text="Recording length (seconds)" FontSize="12" Opacity="0.7" TextWrapping="Wrap" VerticalAlignment="Center" />
-            <TextBox Grid.Row="4" Grid.Column="2" Name="RecordingSecondsInput" Text="300" PlaceholderText="Seconds" />
-            <Button Name="ListenButton" Grid.Row="2" Grid.Column="4" Content="Listen" Click="Listen_Click" />
-            <Button Name="DownloadButton" Grid.Row="2" Grid.Column="6" Content="Download" Click="Download_Click" />
-            <TextBlock Grid.Row="6" Grid.ColumnSpan="7" Name="NativeMediaStatus" FontSize="12" Opacity="0.7" TextWrapping="Wrap" />
           </Grid>
         </Border>
       </Grid>

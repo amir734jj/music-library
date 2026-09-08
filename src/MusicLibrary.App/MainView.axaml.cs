@@ -1,6 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Media;
+using Avalonia.Platform.Storage;
 using MusicLibrary.App.Services;
 using MusicLibrary.Contracts.Constants;
 using MusicLibrary.Contracts.Responses;
@@ -68,7 +69,6 @@ public sealed partial class MainView : UserControl
         get { return !IsBrowserHost; }
     }
     public bool ShowOfflineMode => NativeRadioActions.ListOfflineTracksAsync is not null;
-    public bool ShowStreamRecorder => ShowNativeMedia && NativeRadioActions.SupportsStreamRecorder;
 
     public MainView() : this(showAdministration: false)
     {
@@ -195,29 +195,6 @@ public sealed partial class MainView : UserControl
         }
     }
 
-    private async void Listen_Click(object? sender, RoutedEventArgs eventArgs)
-    {
-        if (NativeRadioActions.ListenAsync is null || !TryGetStreamUri(out var streamUri))
-        {
-            NativeMediaStatus.Text = "Enter a valid HTTP or HTTPS station stream URL.";
-            return;
-        }
-        ListenButton.IsEnabled = false;
-        try
-        {
-            await NativeRadioActions.ListenAsync(streamUri);
-            NativeMediaStatus.Text = "Opening the station in the native audio player.";
-        }
-        catch (Exception exception)
-        {
-            NativeMediaStatus.Text = exception.Message;
-        }
-        finally
-        {
-            ListenButton.IsEnabled = true;
-        }
-    }
-
     private void AuthenticationView_Authenticated(object? sender, AuthenticatedEventArgs eventArgs)
     {
         ShowAuthenticatedApplication(eventArgs.User);
@@ -336,6 +313,37 @@ public sealed partial class MainView : UserControl
         _ = LoadCurrentLibraryViewAsync();
     }
 
+    private async void ChangeOfflineDirectory_Click(object? sender, RoutedEventArgs eventArgs)
+    {
+        if (NativeRadioActions.SetOfflineDirectoryAsync is null) return;
+        var storageProvider = TopLevel.GetTopLevel(this)?.StorageProvider;
+        if (storageProvider is null) return;
+
+        var folders = await storageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title = "Choose a folder for cached recordings",
+            AllowMultiple = false
+        });
+        var selectedPath = folders.Count > 0 ? folders[0].Path.LocalPath : null;
+        if (string.IsNullOrWhiteSpace(selectedPath)) return;
+
+        ChangeOfflineDirectoryButton.IsEnabled = false;
+        NowPlayingStatus.Text = "Moving cached recordings...";
+        try
+        {
+            await NativeRadioActions.SetOfflineDirectoryAsync(selectedPath);
+            await LoadOfflineTracksAsync(LibrarySearchInput.Text);
+        }
+        catch (Exception exception)
+        {
+            NowPlayingStatus.Text = exception.Message;
+        }
+        finally
+        {
+            ChangeOfflineDirectoryButton.IsEnabled = true;
+        }
+    }
+
     private void Stations_Click(object? sender, RoutedEventArgs eventArgs)
     {
         SetLibraryMode(LibraryMode.Stations);
@@ -382,6 +390,8 @@ public sealed partial class MainView : UserControl
         PlayAllTrendingButton.IsVisible = mode == LibraryMode.Trending
             && NativeRadioActions.PlayFileToCompletionAsync is not null;
         DownloadAllTrendingButton.IsVisible = mode == LibraryMode.Trending && ShowNativeMedia;
+        ChangeOfflineDirectoryButton.IsVisible = mode == LibraryMode.Offline
+            && NativeRadioActions.SetOfflineDirectoryAsync is not null;
         LibraryViewTitle.Text = mode switch
         {
             LibraryMode.Following => "Following",
@@ -502,9 +512,12 @@ public sealed partial class MainView : UserControl
             }
             if (_libraryMode != LibraryMode.Offline) return;
             NowPlayingList.ItemsSource = tracks.Select(CreateOfflineTrackRow).ToList();
-            NowPlayingStatus.Text = tracks.Count == 0
+            var locationText = string.IsNullOrWhiteSpace(NativeRadioActions.OfflineDirectoryPath)
+                ? string.Empty
+                : $" Stored at: {NativeRadioActions.OfflineDirectoryPath}";
+            NowPlayingStatus.Text = (tracks.Count == 0
                 ? "No locally cached recordings. Download songs from Trending to keep them on this device."
-                : $"{tracks.Count} recording(s) cached locally";
+                : $"{tracks.Count} recording(s) cached locally") + locationText;
         }
         catch (Exception exception)
         {
@@ -2497,39 +2510,4 @@ public sealed partial class MainView : UserControl
         }
     }
 
-    private async void Download_Click(object? sender, RoutedEventArgs eventArgs)
-    {
-        if (NativeRadioActions.DownloadAsync is null || !TryGetStreamUri(out var streamUri))
-        {
-            NativeMediaStatus.Text = "Enter a valid HTTP or HTTPS station stream URL.";
-            return;
-        }
-        DownloadButton.IsEnabled = false;
-        var seconds = int.TryParse(RecordingSecondsInput.Text, out var parsedSeconds) ? Math.Clamp(parsedSeconds, 10, 1800) : 300;
-        try
-        {
-            var path = await NativeRadioActions.DownloadAsync(streamUri, TimeSpan.FromSeconds(seconds));
-            NativeMediaStatus.Text = $"Saved recording: {path}";
-        }
-        catch (Exception exception)
-        {
-            NativeMediaStatus.Text = exception.Message;
-        }
-        finally
-        {
-            DownloadButton.IsEnabled = true;
-        }
-    }
-
-    private bool TryGetStreamUri(out Uri streamUri)
-    {
-        if (Uri.TryCreate(StreamUrlInput.Text?.Trim(), UriKind.Absolute, out var parsedUri)
-            && (parsedUri.Scheme == Uri.UriSchemeHttp || parsedUri.Scheme == Uri.UriSchemeHttps))
-        {
-            streamUri = parsedUri;
-            return true;
-        }
-        streamUri = null!;
-        return false;
-    }
 }
