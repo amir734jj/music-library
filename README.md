@@ -56,7 +56,9 @@ dotnet build src/MusicLibrary.App.Android/MusicLibrary.App.Android.csproj \
 
 ## Application release
 
-The GitHub Actions workflow in `.github/workflows/application-release.yml` builds a debug-signed Android APK and self-contained Windows x64 and Linux x64 desktop bundles on every `master` push. After every platform succeeds, it updates the single prerelease tag named `latest` with all three downloads. Because the APK is debug-signed (not a persistent release keystore), it installs with Android's "unknown/untrusted developer" warning and updates may require uninstalling the previous build first.
+The GitHub Actions workflow in `.github/workflows/application-release.yml` builds a debug-signed Android APK, a self-contained Linux x64 desktop bundle, and a Velopack Windows x64 release on every `master` push. The Windows release includes an installer, a portable bundle, and the feed/package files used for automatic updates. Installed Windows clients silently check the `latest` GitHub release at startup, apply a newer package, and restart. Portable and development builds do not auto-update.
+
+After every platform succeeds, the workflow updates the single prerelease tag named `latest` with all downloads. Because the APK is debug-signed (not a persistent release keystore), it installs with Android's "unknown/untrusted developer" warning and updates may require uninstalling the previous build first. The Windows installer is not code-signed, so Windows may show an unknown-publisher warning.
 
 ## Web container
 

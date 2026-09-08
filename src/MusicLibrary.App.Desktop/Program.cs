@@ -1,6 +1,7 @@
 using Avalonia;
 using MusicLibrary.App;
 using System.Diagnostics;
+using Velopack;
 
 namespace MusicLibrary.App.Desktop;
 
@@ -9,6 +10,7 @@ internal static class Program
     [STAThread]
     public static void Main(string[] args)
     {
+        VelopackApp.Build().Run();
         MusicLibraryApi.Configure(new Uri("https://music-library.coolify.hesamian.com/"));
         AuthenticationSessionStorage.Load = DesktopAuthenticationSessionStorage.Load;
         AuthenticationSessionStorage.Save = DesktopAuthenticationSessionStorage.Save;
@@ -29,7 +31,27 @@ internal static class Program
         };
         NativeRadioActions.SaveFileAsync = (content, _, fileName) => NativeStreamDownloader.SaveAsync(content, fileName,
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyMusic), "Music Library"));
+        _ = Task.Run(UpdateDesktopAppAsync);
         BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+    }
+
+    private static async Task UpdateDesktopAppAsync()
+    {
+        try
+        {
+            var updateManager = new UpdateManager("https://github.com/amir734jj/music-library/releases/download/latest");
+            if (!updateManager.IsInstalled) return;
+
+            var update = await updateManager.CheckForUpdatesAsync();
+            if (update is null) return;
+
+            await updateManager.DownloadUpdatesAsync(update);
+            updateManager.ApplyUpdatesAndRestart(update.TargetFullRelease);
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine($"Desktop update check failed: {exception}");
+        }
     }
 
     public static AppBuilder BuildAvaloniaApp()

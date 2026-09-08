@@ -55,9 +55,10 @@ jobs:
           - os: ubuntu-latest
             runtime: linux-x64
             archive: music-library-linux-x64.tar.gz
+            artifact_path: artifacts/music-library-linux-x64.tar.gz
           - os: windows-latest
             runtime: win-x64
-            archive: music-library-windows-x64.zip
+            artifact_path: artifacts/win-x64/releases/*
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
@@ -70,16 +71,26 @@ jobs:
         shell: pwsh
         run: |
           $publishDirectory = "artifacts/${{ matrix.runtime }}/publish"
+          $version = "1.0.${{ github.run_number }}"
           dotnet publish src/MusicLibrary.App.Desktop/MusicLibrary.App.Desktop.csproj `
             --configuration Release `
             --runtime ${{ matrix.runtime }} `
             --self-contained true `
             --output $publishDirectory `
             -p:PublishSingleFile=true `
-            -p:IncludeNativeLibrariesForSelfExtract=true
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:Version=$version
 
           if ('${{ runner.os }}' -eq 'Windows') {
-            Compress-Archive -Path "$publishDirectory/*" -DestinationPath "artifacts/${{ matrix.archive }}"
+            dotnet tool install --global vpk --version 1.2.0
+            vpk pack `
+              --packId MusicLibrary `
+              --packVersion $version `
+              --packDir $publishDirectory `
+              --mainExe MusicLibrary.App.Desktop.exe `
+              --packTitle "Music Library" `
+              --runtime win-x64 `
+              --outputDir artifacts/win-x64/releases
           } else {
             tar -czf "artifacts/${{ matrix.archive }}" -C $publishDirectory .
           }
@@ -88,7 +99,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: music-library-${{ matrix.runtime }}
-          path: artifacts/${{ matrix.archive }}
+          path: ${{ matrix.artifact_path }}
           if-no-files-found: error
 
   create-release:
@@ -113,4 +124,4 @@ jobs:
             --target "$GITHUB_SHA" \
             --title "Latest" \
             --prerelease \
-            --notes "Latest Android, Windows, and Linux application builds."
+            --notes "Latest Android APK, Velopack Windows installer, and Linux application build."
