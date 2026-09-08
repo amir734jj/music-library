@@ -6,6 +6,7 @@ public static class NativeRadioActions
 {
     public static Func<Uri, Task>? ListenAsync { get; set; }
     public static Func<Uri, TimeSpan, Task<string>>? DownloadAsync { get; set; }
+    public static Func<byte[], string, string, Task<string>>? SaveFileAsync { get; set; }
 }
 
 public static class NativeStreamDownloader
@@ -46,6 +47,18 @@ public static class NativeStreamDownloader
             // The configured duration completes a bounded live recording.
         }
 
+        return destinationPath;
+    }
+
+    public static async Task<string> SaveAsync(
+        byte[] content,
+        string fileName,
+        string destinationDirectory,
+        CancellationToken cancellationToken = default)
+    {
+        Directory.CreateDirectory(destinationDirectory);
+        var destinationPath = Path.Combine(destinationDirectory, Path.GetFileName(fileName));
+        await File.WriteAllBytesAsync(destinationPath, content, cancellationToken);
         return destinationPath;
     }
 }

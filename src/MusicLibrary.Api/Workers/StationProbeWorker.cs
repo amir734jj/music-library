@@ -8,6 +8,7 @@ namespace MusicLibrary.Api.Workers;
 
 public sealed class StationProbeWorker(
     IServiceScopeFactory scopeFactory,
+    TrackCaptureQueue trackCaptureQueue,
     StationProbeStatusStore statusStore,
     ILogger<StationProbeWorker> logger) : BackgroundService
 {
@@ -126,6 +127,15 @@ public sealed class StationProbeWorker(
                 ObservedAt = DateTimeOffset.UtcNow
             };
             await observations.Save(observation);
+
+            if (!string.IsNullOrWhiteSpace(result.Artist))
+            {
+                trackCaptureQueue.TryQueue(new TrackCaptureRequest(
+                    observation.Id,
+                    streamUri,
+                    result.Artist,
+                    result.Title));
+            }
 
             if (!string.IsNullOrWhiteSpace(result.Artist))
             {

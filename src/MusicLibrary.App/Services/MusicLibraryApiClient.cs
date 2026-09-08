@@ -27,6 +27,9 @@ public interface IMusicLibraryApiClient
     [Get("/api/trending")]
     Task<ApiResponse<List<TrendingSummary>>> GetTrendingAsync([Query] string? query, [Authorize] string accessToken, CancellationToken cancellationToken = default);
 
+    [Get("/api/trending/{cachedTrackId}/download")]
+    Task<HttpResponseMessage> DownloadTrendingTrackAsync(Guid cachedTrackId, [Authorize] string accessToken, CancellationToken cancellationToken = default);
+
     [Get("/api/subscriptions")]
     Task<ApiResponse<List<ArtistSubscriptionSummary>>> GetSubscriptionsAsync([Authorize] string accessToken, CancellationToken cancellationToken = default);
 
@@ -188,6 +191,29 @@ public static class MusicLibraryApi
         return GetContent(response);
     }
 
+    public static async Task<DownloadedTrack> DownloadTrendingTrackAsync(Guid cachedTrackId, CancellationToken cancellationToken = default)
+    {
+        if (!IsAuthenticated) throw new InvalidOperationException("An authenticated session is required.");
+        using var response = await Client.DownloadTrendingTrackAsync(cachedTrackId, _authentication!.AccessToken, cancellationToken);
+        if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+        {
+            SignOut();
+            SessionInvalidated?.Invoke();
+            throw new HttpRequestException("Your session is no longer valid. Sign in again.");
+        }
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            throw new InvalidOperationException("This cached recording has expired.");
+        }
+        response.EnsureSuccessStatusCode();
+        var content = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+        var fileName = response.Content.Headers.ContentDisposition?.FileNameStar
+            ?? response.Content.Headers.ContentDisposition?.FileName?.Trim('"')
+            ?? "radio-track.mp3";
+        var contentType = response.Content.Headers.ContentType?.MediaType ?? "audio/mpeg";
+        return new DownloadedTrack(content, contentType, fileName);
+    }
+
     public static async Task<IReadOnlyCollection<ArtistSubscriptionSummary>> GetSubscriptionsAsync(CancellationToken cancellationToken = default)
     {
         if (!IsAuthenticated) throw new InvalidOperationException("An authenticated session is required.");
@@ -246,7 +272,11 @@ public static class MusicLibraryApi
             ["PROBING_ENABLED"] = config.ProbingEnabled.ToString(),
             ["PROBE_CONCURRENCY"] = config.ProbeConcurrency.ToString(System.Globalization.CultureInfo.InvariantCulture),
             ["PROBE_TIMEOUT_SECONDS"] = config.ProbeTimeoutSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            ["PROBE_BATCH_SIZE"] = config.ProbeBatchSize.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            ["PROBE_BATCH_SIZE"] = config.ProbeBatchSize.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["TRENDING_CACHE_ENCRYPTION_KEY"] = config.TrendingCacheEncryptionKey,
+            ["TRENDING_CACHE_CAPTURE_TIMEOUT_SECONDS"] = config.TrendingCacheCaptureTimeoutSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["TRENDING_CACHE_RETENTION_HOURS"] = config.TrendingCacheRetentionHours.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["TRENDING_CACHE_MAX_SIZE_MEGABYTES"] = config.TrendingCacheMaxSizeMegabytes.ToString(System.Globalization.CultureInfo.InvariantCulture)
         };
         using var response = await Client.SaveAdminConfigAsync(
             new UpdateGlobalConfigRequest(values),
@@ -370,6 +400,8 @@ public static class MusicLibraryApi
         throw new HttpRequestException($"The API request failed with status {status}.", response.Error);
     }
 }
+
+public sealed record DownloadedTrack(byte[] Content, string ContentType, string FileName);
 
 public static class AuthenticationSessionStorage
 {

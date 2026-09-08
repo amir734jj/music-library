@@ -16,4 +16,16 @@ public sealed class GlobalConfigModel
 
     [GlobalConfigCol(Name = "PROBE_BATCH_SIZE")]
     public int ProbeBatchSize { get; init; } = 100;
+
+    [GlobalConfigCol(Name = "TRENDING_CACHE_ENCRYPTION_KEY")]
+    public string TrendingCacheEncryptionKey { get; init; } = string.Empty;
+
+    [GlobalConfigCol(Name = "TRENDING_CACHE_CAPTURE_TIMEOUT_SECONDS")]
+    public int TrendingCacheCaptureTimeoutSeconds { get; init; } = 600;
+
+    [GlobalConfigCol(Name = "TRENDING_CACHE_RETENTION_HOURS")]
+    public int TrendingCacheRetentionHours { get; init; } = 24;
+
+    [GlobalConfigCol(Name = "TRENDING_CACHE_MAX_SIZE_MEGABYTES")]
+    public int TrendingCacheMaxSizeMegabytes { get; init; } = 1024;
 }

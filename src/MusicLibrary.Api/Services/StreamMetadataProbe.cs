@@ -17,7 +17,11 @@ public sealed class StreamMetadataProbe(IStreamRipperFactory streamRipperFactory
         using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeoutSource.CancelAfter(timeout);
         var completion = new TaskCompletionSource<MetadataProbeResult?>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var ripper = streamRipperFactory.New(new StreamRipperOptions { Url = streamUri });
+        using var ripper = streamRipperFactory.New(new StreamRipperOptions
+        {
+            Url = streamUri,
+            MetadataOnly = true
+        });
 
         ripper.MetadataChangedHandlers += (_, eventArgs) =>
         {

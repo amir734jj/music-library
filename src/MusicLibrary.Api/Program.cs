@@ -112,7 +112,10 @@ builder.Services.Scan(scan => scan
 builder.Services.AddStreamRipper();
 builder.Services.AddHttpClient<IStationDirectoryImportService, StationDirectoryImportService>(client => client.Timeout = TimeSpan.FromMinutes(5));
 builder.Services.AddSingleton<StationProbeStatusStore>();
+builder.Services.AddSingleton<TrackCaptureQueue>();
+builder.Services.AddSingleton<TrackCacheStorage>();
 builder.Services.AddHostedService<StationProbeWorker>();
+builder.Services.AddHostedService<EncryptedTrackCacheWorker>();
 
 var app = builder.Build();
 app.UseSerilogRequestLogging(options =>
@@ -134,8 +137,21 @@ if (app.Environment.IsDevelopment())
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
+var browserStaticFileOptions = new StaticFileOptions
+{
+    OnPrepareResponse = context =>
+    {
+        var extension = Path.GetExtension(context.File.Name);
+        if (!extension.Equals(".html", StringComparison.OrdinalIgnoreCase)
+            && !extension.Equals(".js", StringComparison.OrdinalIgnoreCase)) return;
+
+        context.Context.Response.Headers.CacheControl = "no-store, no-cache, must-revalidate, max-age=0";
+        context.Context.Response.Headers.Pragma = "no-cache";
+        context.Context.Response.Headers.Expires = "0";
+    }
+};
 app.UseDefaultFiles();
-app.UseStaticFiles();
+app.UseStaticFiles(browserStaticFileOptions);
 
 app.MapFallback("api/{**rest}", async context =>
 {
@@ -149,13 +165,14 @@ if (app.Environment.IsDevelopment())
 }
 else
 {
-    app.MapFallbackToFile("index.html");
+    app.MapFallbackToFile("index.html", browserStaticFileOptions);
 }
 
 using (var scope = app.Services.CreateScope())
 {
     app.Logger.LogInformation("Applying Music Library PostgreSQL migrations and roles.");
     scope.ServiceProvider.GetRequiredService<IMigrationRunner>().MigrateUp();
+    await scope.ServiceProvider.GetRequiredService<IGlobalConfigService>().EnsureTrendingCacheEncryptionKeyAsync(default);
     var roles = scope.ServiceProvider.GetRequiredService<RoleManager<ApplicationRole>>();
     foreach (var name in new[] { Roles.Admin, Roles.User }) if (!await roles.RoleExistsAsync(name)) await roles.CreateAsync(new ApplicationRole { Id = Guid.NewGuid(), Name = name });
     app.Logger.LogInformation("Music Library database and roles are ready.");

@@ -26,6 +26,11 @@ public sealed class MainActivity : AvaloniaMainActivity
             var directory = GetExternalFilesDir(global::Android.OS.Environment.DirectoryMusic)?.AbsolutePath ?? FilesDir!.AbsolutePath;
             return NativeStreamDownloader.DownloadAsync(streamUri, directory, duration);
         };
+        NativeRadioActions.SaveFileAsync = (content, _, fileName) =>
+        {
+            var directory = GetExternalFilesDir(global::Android.OS.Environment.DirectoryMusic)?.AbsolutePath ?? FilesDir!.AbsolutePath;
+            return NativeStreamDownloader.SaveAsync(content, fileName, directory);
+        };
         base.OnCreate(savedInstanceState);
     }
 }

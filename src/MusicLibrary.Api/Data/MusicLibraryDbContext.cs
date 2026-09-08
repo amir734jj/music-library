@@ -12,6 +12,8 @@ public sealed class MusicLibraryDbContext(DbContextOptions<MusicLibraryDbContext
 
     public DbSet<PlayObservation> PlayObservations => Set<PlayObservation>();
 
+    public DbSet<CachedTrack> CachedTracks => Set<CachedTrack>();
+
     public DbSet<ArtistSubscription> ArtistSubscriptions => Set<ArtistSubscription>();
 
     public DbSet<UserAlert> UserAlerts => Set<UserAlert>();

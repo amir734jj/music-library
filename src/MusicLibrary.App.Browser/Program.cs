@@ -12,6 +12,11 @@ internal static class Program
         MusicLibrary.App.App.IsBrowserHost = true;
         MusicLibrary.App.AuthenticationSessionStorage.Load = BrowserAuthenticationSessionStorage.Load;
         MusicLibrary.App.AuthenticationSessionStorage.Save = BrowserAuthenticationSessionStorage.Save;
+        MusicLibrary.App.NativeRadioActions.SaveFileAsync = (content, contentType, fileName) =>
+        {
+            BrowserAuthenticationSessionStorage.DownloadFile(content, contentType, fileName);
+            return Task.FromResult(fileName);
+        };
         if (args.Length > 0 && Uri.TryCreate(args[0], UriKind.Absolute, out var pageUri))
         {
             MusicLibrary.App.MusicLibraryApi.Configure(new Uri(pageUri.GetLeftPart(UriPartial.Authority)));

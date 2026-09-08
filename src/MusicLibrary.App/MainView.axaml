@@ -103,6 +103,14 @@
                   <NumericUpDown Name="ConfigProbeTimeoutInput" Minimum="2" Maximum="60" Increment="1" />
                   <TextBlock Text="Stations per batch" FontWeight="SemiBold" />
                   <NumericUpDown Name="ConfigProbeBatchSizeInput" Minimum="1" Maximum="1000" Increment="1" />
+                  <TextBlock Text="Trending cache encryption key (Base64)" FontWeight="SemiBold" />
+                  <TextBox Name="ConfigTrendingCacheEncryptionKeyInput" PasswordChar="*" />
+                  <TextBlock Text="Song boundary wait timeout (seconds)" FontWeight="SemiBold" />
+                  <NumericUpDown Name="ConfigTrendingCacheCaptureTimeoutInput" Minimum="60" Maximum="1800" Increment="60" />
+                  <TextBlock Text="Trending cache retention (hours)" FontWeight="SemiBold" />
+                  <NumericUpDown Name="ConfigTrendingCacheRetentionInput" Minimum="1" Maximum="168" Increment="1" />
+                  <TextBlock Text="Trending cache maximum size (MiB)" FontWeight="SemiBold" />
+                  <NumericUpDown Name="ConfigTrendingCacheMaxSizeInput" Minimum="32" Maximum="1024" Increment="64" />
                   <StackPanel Orientation="Horizontal" Spacing="8">
                     <Button Name="SaveGlobalConfigButton" Content="Save configuration" Click="SaveGlobalConfig_Click" />
                     <Button Name="ReloadGlobalConfigButton" Content="Reload" Click="ReloadGlobalConfig_Click" />

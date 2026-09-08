@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Security.Cryptography;
 using MusicLibrary.Api.Data;
 using MusicLibrary.Contracts;
 using EfCoreRepository.Interfaces;
@@ -8,11 +9,14 @@ namespace MusicLibrary.Api.Services;
 public interface IGlobalConfigService
 {
     Task<GlobalConfigModel> GetAsync(CancellationToken cancellationToken);
+    Task EnsureTrendingCacheEncryptionKeyAsync(CancellationToken cancellationToken);
     Task SaveAsync(IReadOnlyDictionary<string, string> values, Guid userId, CancellationToken cancellationToken);
 }
 
 public sealed class GlobalConfigService(IEfRepository repository) : IGlobalConfigService
 {
+    private const string TrendingCacheEncryptionKeyName = "TRENDING_CACHE_ENCRYPTION_KEY";
+
     public async Task<GlobalConfigModel> GetAsync(CancellationToken cancellationToken)
     {
         var rows = (await repository.For<GlobalConfigRow>().GetAll()).ToDictionary(row => row.Key, row => row.Value);
@@ -22,8 +26,40 @@ public sealed class GlobalConfigService(IEfRepository repository) : IGlobalConfi
             ProbingEnabled = GetBool(rows, "PROBING_ENABLED", true),
             ProbeConcurrency = GetInt(rows, "PROBE_CONCURRENCY", 5, 1, 100),
             ProbeTimeoutSeconds = GetInt(rows, "PROBE_TIMEOUT_SECONDS", 12, 2, 60),
-            ProbeBatchSize = GetInt(rows, "PROBE_BATCH_SIZE", 100, 1, 1000)
+            ProbeBatchSize = GetInt(rows, "PROBE_BATCH_SIZE", 100, 1, 1000),
+            TrendingCacheEncryptionKey = Get(rows, TrendingCacheEncryptionKeyName, string.Empty),
+            TrendingCacheCaptureTimeoutSeconds = GetInt(rows, "TRENDING_CACHE_CAPTURE_TIMEOUT_SECONDS", 600, 60, 1800),
+            TrendingCacheRetentionHours = GetInt(rows, "TRENDING_CACHE_RETENTION_HOURS", 24, 1, 168),
+            TrendingCacheMaxSizeMegabytes = GetInt(rows, "TRENDING_CACHE_MAX_SIZE_MEGABYTES", 1024, 32, 1024)
         };
+    }
+
+    public async Task EnsureTrendingCacheEncryptionKeyAsync(CancellationToken cancellationToken)
+    {
+        var rows = repository.For<GlobalConfigRow>();
+        var existing = await rows.Get([row => row.Key == TrendingCacheEncryptionKeyName]);
+        if (existing is not null && TrackCacheCryptography.TryGetKey(existing.Value, out _)) return;
+
+        var value = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
+        if (existing is null)
+        {
+            await rows.Save(new GlobalConfigRow
+            {
+                Key = TrendingCacheEncryptionKeyName,
+                Value = value,
+                UpdatedAt = DateTimeOffset.UtcNow
+            });
+        }
+        else
+        {
+            await rows.Update([row => row.Key == TrendingCacheEncryptionKeyName], row =>
+            {
+                row.Value = value;
+                row.UpdatedAt = DateTimeOffset.UtcNow;
+            });
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
     }
 
     public async Task SaveAsync(IReadOnlyDictionary<string, string> values, Guid userId, CancellationToken cancellationToken)

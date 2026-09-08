@@ -670,11 +670,11 @@ public sealed partial class MainView : UserControl
         }
     }
 
-    private static Control CreateTrendingRow(TrendingSummary trend, int rank)
+    private Control CreateTrendingRow(TrendingSummary trend, int rank)
     {
         var row = new Grid
         {
-            ColumnDefinitions = new ColumnDefinitions("Auto,12,*"),
+            ColumnDefinitions = new ColumnDefinitions("Auto,12,*,12,Auto"),
             RowDefinitions = new RowDefinitions("Auto,Auto"),
             Margin = new Avalonia.Thickness(0, 0, 0, 12)
         };
@@ -708,7 +708,48 @@ public sealed partial class MainView : UserControl
         Grid.SetColumn(lastObserved, 2);
         Grid.SetRow(lastObserved, 1);
         row.Children.Add(lastObserved);
+        if (trend.CachedTrackId is { } cachedTrackId)
+        {
+            var downloadButton = new Button
+            {
+                Content = "Download",
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+            };
+            ToolTip.SetTip(downloadButton, trend.CachedUntil is { } cachedUntil
+                ? $"Cached until {cachedUntil.LocalDateTime:g}"
+                : "Download cached recording");
+            downloadButton.Click += async (_, _) => await DownloadTrendingTrackAsync(cachedTrackId, downloadButton);
+            Grid.SetColumn(downloadButton, 4);
+            Grid.SetRowSpan(downloadButton, 2);
+            row.Children.Add(downloadButton);
+        }
         return row;
+    }
+
+    private async Task DownloadTrendingTrackAsync(Guid cachedTrackId, Button downloadButton)
+    {
+        if (NativeRadioActions.SaveFileAsync is null)
+        {
+            NowPlayingStatus.Text = "Downloads are not available on this platform.";
+            return;
+        }
+
+        downloadButton.IsEnabled = false;
+        NowPlayingStatus.Text = "Preparing encrypted recording...";
+        try
+        {
+            var download = await MusicLibraryApi.DownloadTrendingTrackAsync(cachedTrackId);
+            var destination = await NativeRadioActions.SaveFileAsync(download.Content, download.ContentType, download.FileName);
+            NowPlayingStatus.Text = $"Downloaded {destination}";
+        }
+        catch (Exception exception)
+        {
+            NowPlayingStatus.Text = exception.Message;
+        }
+        finally
+        {
+            downloadButton.IsEnabled = true;
+        }
     }
 
     private async void Administration_Click(object? sender, RoutedEventArgs eventArgs)
@@ -875,9 +916,18 @@ public sealed partial class MainView : UserControl
             }
             if (ConfigProbeConcurrencyInput.Value is not { } probeConcurrency
                 || ConfigProbeTimeoutInput.Value is not { } probeTimeout
-                || ConfigProbeBatchSizeInput.Value is not { } probeBatchSize)
+                || ConfigProbeBatchSizeInput.Value is not { } probeBatchSize
+                || ConfigTrendingCacheCaptureTimeoutInput.Value is not { } cacheTimeout
+                || ConfigTrendingCacheRetentionInput.Value is not { } cacheRetention
+                || ConfigTrendingCacheMaxSizeInput.Value is not { } cacheMaxSize)
             {
                 throw new InvalidOperationException("All numeric configuration values are required.");
+            }
+            var cacheKey = ConfigTrendingCacheEncryptionKeyInput.Text?.Trim() ?? string.Empty;
+            if (!string.IsNullOrEmpty(cacheKey)
+                && (!TryDecodeCacheKey(cacheKey, out var decodedKey) || decodedKey.Length != 32))
+            {
+                throw new InvalidOperationException("Trending cache encryption key must be a Base64-encoded 32-byte key.");
             }
 
             var config = new GlobalConfigModel
@@ -886,7 +936,11 @@ public sealed partial class MainView : UserControl
                 ProbingEnabled = ConfigProbingEnabledInput.IsChecked == true,
                 ProbeConcurrency = Convert.ToInt32(probeConcurrency),
                 ProbeTimeoutSeconds = Convert.ToInt32(probeTimeout),
-                ProbeBatchSize = Convert.ToInt32(probeBatchSize)
+                ProbeBatchSize = Convert.ToInt32(probeBatchSize),
+                TrendingCacheEncryptionKey = cacheKey,
+                TrendingCacheCaptureTimeoutSeconds = Convert.ToInt32(cacheTimeout),
+                TrendingCacheRetentionHours = Convert.ToInt32(cacheRetention),
+                TrendingCacheMaxSizeMegabytes = Convert.ToInt32(cacheMaxSize)
             };
             await MusicLibraryApi.SaveGlobalConfigAsync(config);
             await Task.WhenAll(LoadGlobalConfigAsync(), LoadProbeStatusAsync());
@@ -914,11 +968,29 @@ public sealed partial class MainView : UserControl
             ConfigProbeConcurrencyInput.Value = config.ProbeConcurrency;
             ConfigProbeTimeoutInput.Value = config.ProbeTimeoutSeconds;
             ConfigProbeBatchSizeInput.Value = config.ProbeBatchSize;
+            ConfigTrendingCacheEncryptionKeyInput.Text = config.TrendingCacheEncryptionKey;
+            ConfigTrendingCacheCaptureTimeoutInput.Value = config.TrendingCacheCaptureTimeoutSeconds;
+            ConfigTrendingCacheRetentionInput.Value = config.TrendingCacheRetentionHours;
+            ConfigTrendingCacheMaxSizeInput.Value = config.TrendingCacheMaxSizeMegabytes;
             GlobalConfigStatus.Text = "Configuration loaded.";
         }
         catch (Exception exception)
         {
             GlobalConfigStatus.Text = exception.Message;
+        }
+    }
+
+    private static bool TryDecodeCacheKey(string value, out byte[] key)
+    {
+        try
+        {
+            key = Convert.FromBase64String(value);
+            return true;
+        }
+        catch (FormatException)
+        {
+            key = [];
+            return false;
         }
     }
 

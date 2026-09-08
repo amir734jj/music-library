@@ -11,4 +11,7 @@ internal static partial class BrowserAuthenticationSessionStorage
 
     [JSImport("saveAuthenticationSession", ModuleName)]
     internal static partial void Save(string? value);
+
+    [JSImport("downloadFile", ModuleName)]
+    internal static partial void DownloadFile(byte[] content, string contentType, string fileName);
 }

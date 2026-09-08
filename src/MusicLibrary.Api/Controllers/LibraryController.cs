@@ -10,7 +10,10 @@ namespace MusicLibrary.Api.Controllers;
 [ApiController]
 [Route("api")]
 [Authorize]
-public sealed class LibraryController(IEfRepository repository) : MusicLibraryControllerBase
+public sealed class LibraryController(
+    IEfRepository repository,
+    IGlobalConfigService configService,
+    IEncryptedTrackCacheService encryptedTrackCacheService) : MusicLibraryControllerBase
 {
     [HttpGet("now-playing")]
     public async Task<IReadOnlyCollection<NowPlayingSummary>> NowPlaying([FromQuery] string? query)
@@ -42,7 +45,7 @@ public sealed class LibraryController(IEfRepository repository) : MusicLibraryCo
     }
 
     [HttpGet("trending")]
-    public async Task<IReadOnlyCollection<TrendingSummary>> Trending([FromQuery] string? query)
+    public async Task<IReadOnlyCollection<TrendingSummary>> Trending([FromQuery] string? query, CancellationToken cancellationToken)
     {
         var cutoff = DateTimeOffset.UtcNow.AddHours(-24);
         var filters = string.IsNullOrWhiteSpace(query)
@@ -61,6 +64,21 @@ public sealed class LibraryController(IEfRepository repository) : MusicLibraryCo
             orderBy: Ordering<PlayObservation>.Desc(play => play.ObservedAt),
             project: play => new NowPlayingSummary(play.StationId, play.Station.Name, play.Artist, play.Title, play.RawMetadata, play.ObservedAt, play.Confidence),
             maxResults: 10000);
+        var config = await configService.GetAsync(cancellationToken);
+        IEnumerable<CachedTrack> cachedTracks = [];
+        if (TrackCacheCryptography.TryGetKey(config.TrendingCacheEncryptionKey, out var cacheKey))
+        {
+            var keyFingerprint = TrackCacheCryptography.GetFingerprint(cacheKey);
+            cachedTracks = await repository.For<CachedTrack>().GetAll(
+                filterExprs: [track => track.ExpiresAt > DateTimeOffset.UtcNow
+                    && track.KeyFingerprint == keyFingerprint],
+                orderBy: Ordering<CachedTrack>.Desc(track => track.CreatedAt),
+                maxResults: 10000);
+        }
+        var cacheByTrack = cachedTracks
+            .Where(track => System.IO.File.Exists(track.FilePath))
+            .GroupBy(track => (track.NormalizedArtist, track.NormalizedTitle))
+            .ToDictionary(group => group.Key, group => group.First());
 
         return observations
             .Where(play => !string.IsNullOrWhiteSpace(play.Artist))
@@ -72,18 +90,30 @@ public sealed class LibraryController(IEfRepository repository) : MusicLibraryCo
             .Select(group =>
             {
                 var latest = group.MaxBy(play => play.ObservedAt)!;
+                cacheByTrack.TryGetValue((group.Key.Artist, group.Key.Title ?? string.Empty), out var cachedTrack);
                 return new TrendingSummary(
                     latest.Artist!.Trim(),
                     latest.Title?.Trim(),
                     group.Count(),
                     group.Select(play => play.StationId).Distinct().Count(),
-                    latest.ObservedAt);
+                    latest.ObservedAt,
+                    cachedTrack?.Id,
+                    cachedTrack?.ExpiresAt);
             })
             .OrderByDescending(trend => trend.ObservationCount)
             .ThenByDescending(trend => trend.StationCount)
             .ThenByDescending(trend => trend.LastObservedAt)
             .Take(100)
             .ToList();
+    }
+
+    [HttpGet("trending/{cachedTrackId:guid}/download")]
+    public async Task<IActionResult> DownloadTrendingTrack(Guid cachedTrackId, CancellationToken cancellationToken)
+    {
+        var download = await encryptedTrackCacheService.GetAsync(cachedTrackId, cancellationToken);
+        if (download is null) return NotFound();
+        Response.Headers.CacheControl = "no-store";
+        return File(download.Content, download.ContentType, download.FileName);
     }
 
     [HttpGet("subscriptions")]

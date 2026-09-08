@@ -17,6 +17,7 @@ public sealed class AdminController(
     UserManager<ApplicationUser> userManager,
     IGlobalConfigService configService,
     IStationDirectoryImportService importService,
+    TrackCacheStorage trackCacheStorage,
     StationProbeStatusStore probeStatusStore,
     IEfRepository repository) : MusicLibraryControllerBase
 {
@@ -37,7 +38,19 @@ public sealed class AdminController(
     [HttpPut("config")]
     public async Task<IActionResult> SaveConfig(UpdateGlobalConfigRequest request, CancellationToken cancellationToken)
     {
+        if (request.Values.TryGetValue("TRENDING_CACHE_ENCRYPTION_KEY", out var cacheKey)
+            && !TrackCacheCryptography.TryGetKey(cacheKey, out _))
+        {
+            ModelState.AddModelError("TRENDING_CACHE_ENCRYPTION_KEY", "The cache encryption key must be a Base64-encoded 32-byte key.");
+            return ValidationProblem(ModelState);
+        }
+
         await configService.SaveAsync(request.Values, CurrentUserId, cancellationToken);
+        var config = await configService.GetAsync(cancellationToken);
+        await trackCacheStorage.EnforceLimitAsync(
+            repository,
+            config.TrendingCacheMaxSizeMegabytes * 1024L * 1024L,
+            cancellationToken);
         return NoContent();
     }
 
