@@ -1,6 +1,7 @@
 using EfCoreRepository.Interfaces;
 using EfCoreRepository.Models;
 using MusicLibrary.Api.Data;
+using MusicLibrary.Api.Services;
 using MusicLibrary.Contracts;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
