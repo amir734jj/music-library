@@ -58,7 +58,9 @@ public sealed partial class StreamMetadataProbe(IStreamRipperFactory streamRippe
                 .Trim();
         }
 
-        if (ContainsIcyField(artist) || ContainsIcyField(title))
+        if (ContainsIcyField(artist)
+            || ContainsIcyField(title)
+            || !TrackMetadataValidation.IsMeaningful(artist, title))
         {
             artist = null;
             title = null;

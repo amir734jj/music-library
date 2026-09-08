@@ -41,17 +41,54 @@ public sealed class AdminController(
         return trackCacheStorage.GetStatusAsync(cancellationToken);
     }
 
+    [HttpDelete("cache")]
+    public async Task<IActionResult> ClearCache(CancellationToken cancellationToken)
+    {
+        await trackCacheStorage.ClearAsync(repository, cancellationToken);
+        return NoContent();
+    }
+
     [HttpPut("config")]
     public async Task<IActionResult> SaveConfig(UpdateGlobalConfigRequest request, CancellationToken cancellationToken)
     {
-        if (request.Values.TryGetValue("TRENDING_CACHE_ENCRYPTION_KEY", out var cacheKey)
-            && !TrackCacheCryptography.TryGetKey(cacheKey, out _))
+        const string cacheKeyName = "TRENDING_CACHE_ENCRYPTION_KEY";
+        if (request.Values.TryGetValue(cacheKeyName, out var cacheKey)
+            && !TrackCacheCryptography.TryGetKey(cacheKey, out var newKey))
         {
-            ModelState.AddModelError("TRENDING_CACHE_ENCRYPTION_KEY", "The cache encryption key must be a Base64-encoded 32-byte key.");
+            ModelState.AddModelError(cacheKeyName, "The cache encryption key must be a Base64-encoded 32-byte key.");
             return ValidationProblem(ModelState);
         }
 
-        await configService.SaveAsync(request.Values, CurrentUserId, cancellationToken);
+        var previousConfig = await configService.GetAsync(cancellationToken);
+        var keyChanged = cacheKey is not null
+            && !string.Equals(cacheKey.Trim(), previousConfig.TrendingCacheEncryptionKey, StringComparison.Ordinal);
+        if (keyChanged)
+        {
+            if (!TrackCacheCryptography.TryGetKey(previousConfig.TrendingCacheEncryptionKey, out var oldKey))
+            {
+                return Problem("The current cache encryption key is invalid; clear the cache before changing it.");
+            }
+
+            await trackCacheStorage.EnforceLimitAsync(
+                repository,
+                oldKey,
+                previousConfig.TrendingCacheMaxSizeMegabytes * 1024L * 1024L,
+                cancellationToken);
+            await trackCacheStorage.RotateKeyAsync(
+                repository,
+                oldKey,
+                newKey!,
+                () => configService.SaveAsync(
+                    new Dictionary<string, string> { [cacheKeyName] = cacheKey! },
+                    CurrentUserId,
+                    cancellationToken),
+                cancellationToken);
+        }
+
+        var remainingValues = keyChanged
+            ? request.Values.Where(pair => pair.Key != cacheKeyName).ToDictionary()
+            : request.Values;
+        await configService.SaveAsync(remainingValues, CurrentUserId, cancellationToken);
         var config = await configService.GetAsync(cancellationToken);
         var key = TrackCacheCryptography.TryGetKey(config.TrendingCacheEncryptionKey, out var encryptionKey)
             ? encryptionKey

@@ -56,6 +56,9 @@ public interface IMusicLibraryApiClient
     [Get("/api/admin/cache/status")]
     Task<ApiResponse<TrendingCacheStatusSummary>> GetAdminCacheStatusAsync([Authorize] string accessToken, CancellationToken cancellationToken = default);
 
+    [Delete("/api/admin/cache")]
+    Task<IApiResponse> ClearAdminCacheAsync([Authorize] string accessToken, CancellationToken cancellationToken = default);
+
     [Put("/api/admin/config")]
     Task<IApiResponse> SaveAdminConfigAsync([Body] UpdateGlobalConfigRequest request, [Authorize] string accessToken, CancellationToken cancellationToken = default);
 
@@ -107,7 +110,11 @@ public static class MusicLibraryApi
 
         _baseAddress = baseAddress.AbsoluteUri.EndsWith('/') ? baseAddress : new Uri($"{baseAddress.AbsoluteUri}/");
         var refitSettings = new RefitSettings(new NewtonsoftJsonContentSerializer(SerializerSettings));
-        _client = RestService.ForGenerated<IMusicLibraryApiClient>(new HttpClient { BaseAddress = BaseAddress }, refitSettings);
+        _client = RestService.ForGenerated<IMusicLibraryApiClient>(new HttpClient
+        {
+            BaseAddress = BaseAddress,
+            Timeout = TimeSpan.FromMinutes(30)
+        }, refitSettings);
     }
 
     public static async Task<bool> IsHealthyAsync(CancellationToken cancellationToken = default)
@@ -272,6 +279,13 @@ public static class MusicLibraryApi
         using var response = await Client.GetAdminCacheStatusAsync(_authentication!.AccessToken, cancellationToken);
         EnsureSuccess(response);
         return GetContent(response);
+    }
+
+    public static async Task ClearTrendingCacheAsync(CancellationToken cancellationToken = default)
+    {
+        if (!IsAuthenticated) throw new InvalidOperationException("An authenticated session is required.");
+        using var response = await Client.ClearAdminCacheAsync(_authentication!.AccessToken, cancellationToken);
+        EnsureSuccess(response);
     }
 
     public static async Task SaveGlobalConfigAsync(GlobalConfigModel config, CancellationToken cancellationToken = default)

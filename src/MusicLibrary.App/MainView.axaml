@@ -32,7 +32,12 @@
           <Grid RowDefinitions="Auto,8,Auto,8,*">
             <Grid ColumnDefinitions="*,Auto,8,Auto">
               <TextBlock Name="LibraryViewTitle" Text="Now Playing" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" />
-              <Button Name="PlayAllTrendingButton" Grid.Column="1" Content="Play all" IsVisible="False" Click="PlayAllTrending_Click" />
+              <Button Name="PlayAllTrendingButton" Grid.Column="1" IsVisible="False" Click="PlayAllTrending_Click">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <PathIcon Data="M8,5.14V19.14L19,12.14L8,5.14Z" Width="16" Height="16" />
+                  <TextBlock Name="PlayAllTrendingButtonText" Text="Play all" VerticalAlignment="Center" />
+                </StackPanel>
+              </Button>
               <Button Name="DownloadAllTrendingButton" Grid.Column="3" Content="Download all" IsVisible="False" Click="DownloadAllTrending_Click" />
             </Grid>
             <TextBlock Grid.Row="2" Name="NowPlayingStatus" Text="Loading live observations..." Opacity="0.7" TextWrapping="Wrap" />
@@ -102,13 +107,16 @@
                   <TextBox Name="ConfigDirectoryArtifactUrlInput" />
                   <CheckBox Name="ConfigProbingEnabledInput" Content="Enable background probing" />
                   <TextBlock Text="Probe concurrency" FontWeight="SemiBold" />
+                  <TextBlock Text="Maximum number of station streams checked at the same time." FontSize="12" Opacity="0.65" TextWrapping="Wrap" />
                   <NumericUpDown Name="ConfigProbeConcurrencyInput" Minimum="1" Maximum="100" Increment="1" />
                   <TextBlock Text="Probe timeout (seconds)" FontWeight="SemiBold" />
+                  <TextBlock Text="Maximum time allowed for one station to return song metadata." FontSize="12" Opacity="0.65" TextWrapping="Wrap" />
                   <NumericUpDown Name="ConfigProbeTimeoutInput" Minimum="2" Maximum="60" Increment="1" />
                   <TextBlock Text="Stations per batch" FontWeight="SemiBold" />
                   <NumericUpDown Name="ConfigProbeBatchSizeInput" Minimum="1" Maximum="1000" Increment="1" />
                   <TextBlock Text="Trending cache encryption key (Base64)" FontWeight="SemiBold" />
                   <TextBox Name="ConfigTrendingCacheEncryptionKeyInput" PasswordChar="*" />
+                  <CheckBox Name="ShowTrendingCacheEncryptionKeyInput" Content="Show encryption key" Click="ShowTrendingCacheEncryptionKey_Click" />
                   <TextBlock Text="Song boundary wait timeout (seconds)" FontWeight="SemiBold" />
                   <NumericUpDown Name="ConfigTrendingCacheCaptureTimeoutInput" Minimum="60" Maximum="1800" Increment="60" />
                   <TextBlock Text="Trending cache retention (hours)" FontWeight="SemiBold" />
@@ -116,10 +124,11 @@
                   <TextBlock Text="Trending cache maximum size (MiB)" FontWeight="SemiBold" />
                   <NumericUpDown Name="ConfigTrendingCacheMaxSizeInput" Minimum="32" Maximum="1024" Increment="64" />
                   <TextBlock Name="ConfigTrendingCacheStatus" Text="Current cache: loading..." Opacity="0.7" />
-                  <StackPanel Orientation="Horizontal" Spacing="8">
-                    <Button Name="SaveGlobalConfigButton" Content="Save configuration" Click="SaveGlobalConfig_Click" />
-                    <Button Name="ReloadGlobalConfigButton" Content="Reload" Click="ReloadGlobalConfig_Click" />
-                  </StackPanel>
+                  <WrapPanel Orientation="Horizontal">
+                    <Button Name="SaveGlobalConfigButton" Content="Save configuration" Margin="0,0,8,8" Click="SaveGlobalConfig_Click" />
+                    <Button Name="ReloadGlobalConfigButton" Content="Reload" Margin="0,0,8,8" Click="ReloadGlobalConfig_Click" />
+                    <Button Name="ClearTrendingCacheButton" Content="Clear cache" Margin="0,0,0,8" Click="ClearTrendingCache_Click" />
+                  </WrapPanel>
                   <TextBlock Name="GlobalConfigStatus" Opacity="0.7" TextWrapping="Wrap" />
                 </StackPanel>
               </ScrollViewer>

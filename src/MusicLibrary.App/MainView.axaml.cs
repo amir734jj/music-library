@@ -29,6 +29,7 @@ public sealed partial class MainView : UserControl
     private CancellationTokenSource? _probeStatusPollingCancellation;
     private CancellationTokenSource? _sessionExpiryCancellation;
     private bool _probingEnabled;
+    private bool _clearTrendingCacheConfirmed;
     private int _enabledStationCount;
     private int _probePage = 1;
     private int _probePageCount = 1;
@@ -288,7 +289,8 @@ public sealed partial class MainView : UserControl
         NowPlayingNavigationButton.Classes.Set("active", mode == LibraryMode.NowPlaying);
         FollowingNavigationButton.Classes.Set("active", mode == LibraryMode.Following);
         TrendingNavigationButton.Classes.Set("active", mode == LibraryMode.Trending);
-        PlayAllTrendingButton.IsVisible = mode == LibraryMode.Trending && ShowNativeMedia;
+        PlayAllTrendingButton.IsVisible = mode == LibraryMode.Trending
+            && NativeRadioActions.PlayFileToCompletionAsync is not null;
         DownloadAllTrendingButton.IsVisible = mode == LibraryMode.Trending && ShowNativeMedia;
         LibraryViewTitle.Text = mode switch
         {
@@ -434,7 +436,7 @@ public sealed partial class MainView : UserControl
     {
         var row = new Grid
         {
-            ColumnDefinitions = new ColumnDefinitions("*,Auto"),
+            ColumnDefinitions = new ColumnDefinitions("*,Auto,8,Auto"),
             RowDefinitions = new RowDefinitions("Auto,Auto"),
             Margin = new Avalonia.Thickness(0, 0, 0, 10)
         };
@@ -453,7 +455,7 @@ public sealed partial class MainView : UserControl
             Opacity = 0.7,
             TextWrapping = Avalonia.Media.TextWrapping.Wrap
         });
-        Grid.SetColumnSpan(details, 2);
+        Grid.SetColumnSpan(details, 4);
         row.Children.Add(details);
 
         var observedAt = new TextBlock
@@ -465,6 +467,24 @@ public sealed partial class MainView : UserControl
         Grid.SetColumn(observedAt, 1);
         Grid.SetRow(observedAt, 1);
         row.Children.Add(observedAt);
+
+        if (Uri.TryCreate(observation.StreamUrl, UriKind.Absolute, out var streamUri)
+            && streamUri.Scheme is Uri.UriSchemeHttp or Uri.UriSchemeHttps
+            && NativeRadioActions.ListenAsync is not null)
+        {
+            var listenButton = new Button
+            {
+                Content = CreateActionIcon("mdi-play"),
+                Width = 36,
+                Height = 32,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+            };
+            ToolTip.SetTip(listenButton, $"Listen live to {observation.StationName}");
+            listenButton.Click += async (_, _) => await ListenToStationAsync(streamUri, observation.StationName, listenButton);
+            Grid.SetColumn(listenButton, 3);
+            Grid.SetRow(listenButton, 1);
+            row.Children.Add(listenButton);
+        }
 
         if (!string.IsNullOrWhiteSpace(observation.Artist))
         {
@@ -489,6 +509,24 @@ public sealed partial class MainView : UserControl
         }
 
         return row;
+    }
+
+    private async Task ListenToStationAsync(Uri streamUri, string stationName, Button listenButton)
+    {
+        listenButton.IsEnabled = false;
+        try
+        {
+            await NativeRadioActions.ListenAsync!(streamUri);
+            NowPlayingStatus.Text = $"Listening live to {stationName}.";
+        }
+        catch (Exception exception)
+        {
+            NowPlayingStatus.Text = exception.Message;
+        }
+        finally
+        {
+            listenButton.IsEnabled = true;
+        }
     }
 
     private async Task EnsureSubscriptionsLoadedAsync(CancellationToken cancellationToken)
@@ -718,7 +756,9 @@ public sealed partial class MainView : UserControl
         });
         details.Children.Add(new TextBlock
         {
-            Text = $"{trend.ObservationCount} detection(s) across {trend.StationCount} station(s)",
+            Text = trend.BitrateKbps is > 0
+                ? $"{trend.ObservationCount} detection(s) across {trend.StationCount} station(s) | {trend.BitrateKbps} kbps"
+                : $"{trend.ObservationCount} detection(s) across {trend.StationCount} station(s)",
             Opacity = 0.7
         });
         Grid.SetColumn(details, 2);
@@ -981,7 +1021,7 @@ public sealed partial class MainView : UserControl
         }
 
         var cancellation = _trendingPlaybackCancellation = new CancellationTokenSource();
-        PlayAllTrendingButton.Content = "Stop";
+        PlayAllTrendingButtonText.Text = "Stop";
         DownloadAllTrendingButton.IsEnabled = false;
         var cycle = 1;
         try
@@ -1032,7 +1072,7 @@ public sealed partial class MainView : UserControl
             if (_trendingPlaybackCancellation == cancellation)
             {
                 _trendingPlaybackCancellation = null;
-                PlayAllTrendingButton.Content = "Play all";
+                PlayAllTrendingButtonText.Text = "Play all";
                 DownloadAllTrendingButton.IsEnabled = true;
             }
             cancellation.Dispose();
@@ -1191,9 +1231,52 @@ public sealed partial class MainView : UserControl
         }
     }
 
+    private void ShowTrendingCacheEncryptionKey_Click(object? sender, RoutedEventArgs eventArgs)
+    {
+        ConfigTrendingCacheEncryptionKeyInput.PasswordChar = ShowTrendingCacheEncryptionKeyInput.IsChecked == true
+            ? '\0'
+            : '*';
+    }
+
+    private async void ClearTrendingCache_Click(object? sender, RoutedEventArgs eventArgs)
+    {
+        if (!_clearTrendingCacheConfirmed)
+        {
+            _clearTrendingCacheConfirmed = true;
+            ClearTrendingCacheButton.Content = "Confirm clear cache";
+            GlobalConfigStatus.Text = "Click Confirm clear cache to permanently remove all cached recordings.";
+            return;
+        }
+
+        ClearTrendingCacheButton.IsEnabled = false;
+        SaveGlobalConfigButton.IsEnabled = false;
+        ReloadGlobalConfigButton.IsEnabled = false;
+        GlobalConfigStatus.Text = "Clearing cached recordings...";
+        try
+        {
+            await MusicLibraryApi.ClearTrendingCacheAsync();
+            await LoadGlobalConfigAsync();
+            GlobalConfigStatus.Text = "Trending cache cleared.";
+        }
+        catch (Exception exception)
+        {
+            GlobalConfigStatus.Text = exception.Message;
+        }
+        finally
+        {
+            _clearTrendingCacheConfirmed = false;
+            ClearTrendingCacheButton.Content = "Clear cache";
+            ClearTrendingCacheButton.IsEnabled = true;
+            SaveGlobalConfigButton.IsEnabled = true;
+            ReloadGlobalConfigButton.IsEnabled = true;
+        }
+    }
+
     private async void SaveGlobalConfig_Click(object? sender, RoutedEventArgs eventArgs)
     {
         SaveGlobalConfigButton.IsEnabled = false;
+        ReloadGlobalConfigButton.IsEnabled = false;
+        ClearTrendingCacheButton.IsEnabled = false;
         GlobalConfigStatus.Text = "Saving configuration...";
         try
         {
@@ -1242,11 +1325,15 @@ public sealed partial class MainView : UserControl
         finally
         {
             SaveGlobalConfigButton.IsEnabled = true;
+            ReloadGlobalConfigButton.IsEnabled = true;
+            ClearTrendingCacheButton.IsEnabled = true;
         }
     }
 
     private async Task LoadGlobalConfigAsync()
     {
+        _clearTrendingCacheConfirmed = false;
+        ClearTrendingCacheButton.Content = "Clear cache";
         GlobalConfigStatus.Text = "Loading configuration...";
         try
         {

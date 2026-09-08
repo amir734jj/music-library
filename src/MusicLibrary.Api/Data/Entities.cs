@@ -60,6 +60,7 @@ public sealed class CachedTrack
     public string FilePath { get; set; } = string.Empty;
     public string ContentType { get; set; } = "audio/mpeg";
     public long PlaintextLength { get; set; }
+    public int? BitrateKbps { get; set; }
     public string KeyFingerprint { get; set; } = string.Empty;
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset ExpiresAt { get; set; }

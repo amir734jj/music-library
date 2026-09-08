@@ -42,7 +42,8 @@ public sealed class LibraryController(
                 station.CurrentTitle,
                 station.CurrentRawMetadata!,
                 station.LastMetadataAt!.Value,
-                station.CurrentConfidence),
+                station.CurrentConfidence,
+                station.StreamUrl),
             maxResults: 100)).ToList();
     }
 
@@ -64,7 +65,7 @@ public sealed class LibraryController(
         var observations = await repository.For<PlayObservation>().GetAll(
             filterExprs: filters,
             orderBy: Ordering<PlayObservation>.Desc(play => play.ObservedAt),
-            project: play => new NowPlayingSummary(play.StationId, play.Station.Name, play.Artist, play.Title, play.RawMetadata, play.ObservedAt, play.Confidence),
+            project: play => new NowPlayingSummary(play.StationId, play.Station.Name, play.Artist, play.Title, play.RawMetadata, play.ObservedAt, play.Confidence, null),
             maxResults: 10000);
         var config = await configService.GetAsync(cancellationToken);
         IEnumerable<CachedTrack> cachedTracks = [];
@@ -83,7 +84,8 @@ public sealed class LibraryController(
             .ToDictionary(group => group.Key, group => group.First());
 
         return observations
-            .Where(play => !string.IsNullOrWhiteSpace(play.Artist))
+            .Where(play => !string.IsNullOrWhiteSpace(play.Artist)
+                && TrackMetadataValidation.IsMeaningful(play.Artist, play.Title))
             .GroupBy(play => new
             {
                 Artist = play.Artist!.Trim().ToUpperInvariant(),
@@ -99,6 +101,7 @@ public sealed class LibraryController(
                     group.Count(),
                     group.Select(play => play.StationId).Distinct().Count(),
                     latest.ObservedAt,
+                    cachedTrack?.BitrateKbps,
                     cachedTrack?.Id,
                     cachedTrack?.ExpiresAt);
             })

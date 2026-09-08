@@ -45,6 +45,7 @@ public sealed class TrackCaptureQueue
 }
 
 public sealed record CachedTrackDownload(byte[] Content, string ContentType, string FileName);
+public sealed record CachedTrackRead(CachedTrack Track, byte[] Content, string ContentType);
 
 public interface IEncryptedTrackCacheService
 {
@@ -54,50 +55,19 @@ public interface IEncryptedTrackCacheService
 public sealed class EncryptedTrackCacheService(
     IGlobalConfigService configService,
     IEfRepository repository,
-    TrackCacheStorage storage,
-    ILogger<EncryptedTrackCacheService> logger) : IEncryptedTrackCacheService
+    TrackCacheStorage storage) : IEncryptedTrackCacheService
 {
     public async Task<CachedTrackDownload?> GetAsync(Guid id, CancellationToken cancellationToken)
     {
-        var cachedTrack = await repository.For<CachedTrack>().Get<Guid>(id);
-        if (cachedTrack is null) return null;
-        if (cachedTrack.ExpiresAt <= DateTimeOffset.UtcNow || !File.Exists(cachedTrack.FilePath))
-        {
-            await storage.RemoveAsync(repository, cachedTrack, cancellationToken);
-            return null;
-        }
-
         var config = await configService.GetAsync(cancellationToken);
         if (!TrackCacheCryptography.TryGetKey(config.TrendingCacheEncryptionKey, out var key)) return null;
-        if (cachedTrack.KeyFingerprint != TrackCacheCryptography.GetFingerprint(key))
-        {
-            await storage.RemoveAsync(repository, cachedTrack, cancellationToken);
-            return null;
-        }
+        var cached = await storage.TryReadAsync(repository, id, key, cancellationToken);
+        if (cached is null) return null;
 
-        byte[] content;
-        try
-        {
-            var encrypted = await File.ReadAllBytesAsync(cachedTrack.FilePath, cancellationToken);
-            content = TrackCacheCryptography.Decrypt(encrypted, key);
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or CryptographicException)
-        {
-            logger.LogWarning(exception, "Removing unreadable cached track {CachedTrackId}.", cachedTrack.Id);
-            await storage.RemoveAsync(repository, cachedTrack, cancellationToken);
-            return null;
-        }
-        if (!TrackAudioValidation.TryGetContentType(content, out var contentType))
-        {
-            logger.LogWarning("Removing cached track {CachedTrackId} because its audio format is invalid.", cachedTrack.Id);
-            await storage.RemoveAsync(repository, cachedTrack, cancellationToken);
-            return null;
-        }
-
-        var name = string.IsNullOrWhiteSpace(cachedTrack.Title)
-            ? cachedTrack.Artist
-            : $"{cachedTrack.Artist} - {cachedTrack.Title}";
-        return new CachedTrackDownload(content, contentType, $"{SanitizeFileName(name)}{GetExtension(contentType)}");
+        var name = string.IsNullOrWhiteSpace(cached.Track.Title)
+            ? cached.Track.Artist
+            : $"{cached.Track.Artist} - {cached.Track.Title}";
+        return new CachedTrackDownload(cached.Content, cached.ContentType, $"{SanitizeFileName(name)}{GetExtension(cached.ContentType)}");
     }
 
     private static string SanitizeFileName(string value)
@@ -119,6 +89,7 @@ public sealed class EncryptedTrackCacheService(
 public sealed class TrackCacheStorage(IConfiguration configuration)
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private string? _activeKeyFingerprint;
 
     public string CacheDirectory { get; } = configuration["TRENDING_CACHE_DIRECTORY"]
         ?? Path.Combine(Path.GetTempPath(), "music-library-trending-cache");
@@ -134,6 +105,7 @@ public sealed class TrackCacheStorage(IConfiguration configuration)
         try
         {
             Directory.CreateDirectory(CacheDirectory);
+            if (_activeKeyFingerprint is not null && track.KeyFingerprint != _activeKeyFingerprint) return false;
             await RemoveExpiredAsync(repository, cancellationToken);
             if (!await MakeSpaceAsync(repository, maximumCacheBytes, encrypted.LongLength, cancellationToken)) return false;
 
@@ -152,6 +124,177 @@ public sealed class TrackCacheStorage(IConfiguration configuration)
         finally
         {
             _gate.Release();
+        }
+    }
+
+    public async Task<CachedTrackRead?> TryReadAsync(
+        IEfRepository repository,
+        Guid id,
+        byte[] encryptionKey,
+        CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var tracks = repository.For<CachedTrack>();
+            var track = await tracks.Get<Guid>(id);
+            if (track is null) return null;
+            if (track.KeyFingerprint != TrackCacheCryptography.GetFingerprint(encryptionKey)) return null;
+            if (track.ExpiresAt <= DateTimeOffset.UtcNow || !File.Exists(track.FilePath))
+            {
+                TryDeleteFile(track.FilePath);
+                await tracks.Delete([candidate => candidate.Id == id]);
+                return null;
+            }
+
+            try
+            {
+                var encrypted = await File.ReadAllBytesAsync(track.FilePath, cancellationToken);
+                var content = TrackCacheCryptography.Decrypt(encrypted, encryptionKey);
+                if (TrackAudioValidation.TryAnalyze(content, out var audioInfo))
+                {
+                    if (track.BitrateKbps != audioInfo.BitrateKbps)
+                    {
+                        await tracks.Update<Guid>(track.Id, candidate => candidate.BitrateKbps = audioInfo.BitrateKbps);
+                        track.BitrateKbps = audioInfo.BitrateKbps;
+                    }
+                    return new CachedTrackRead(track, content, audioInfo.ContentType);
+                }
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or CryptographicException)
+            {
+            }
+
+            TryDeleteFile(track.FilePath);
+            await tracks.Delete([candidate => candidate.Id == id]);
+            return null;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task ClearAsync(IEfRepository repository, CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var tracks = repository.For<CachedTrack>();
+            var metadata = (await tracks.GetAll<CachedTrack>(maxResults: 100000)).ToList();
+            if (metadata.Count > 0)
+            {
+                var ids = metadata.Select(track => track.Id).ToArray();
+                await tracks.Delete([track => ids.Contains(track.Id)]);
+            }
+
+            if (!Directory.Exists(CacheDirectory)) return;
+            foreach (var path in Directory.EnumerateFiles(CacheDirectory, "*.cache"))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                File.Delete(path);
+            }
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task RotateKeyAsync(
+        IEfRepository repository,
+        byte[] oldKey,
+        byte[] newKey,
+        Func<Task> saveConfiguration,
+        CancellationToken cancellationToken)
+    {
+        var oldFingerprint = TrackCacheCryptography.GetFingerprint(oldKey);
+        var newFingerprint = TrackCacheCryptography.GetFingerprint(newKey);
+        if (oldFingerprint == newFingerprint)
+        {
+            await saveConfiguration();
+            return;
+        }
+
+        await _gate.WaitAsync(cancellationToken);
+        var stagedPaths = new List<string>();
+        var backupPaths = new List<(string Original, string Backup)>();
+        var tracks = repository.For<CachedTrack>();
+        CachedTrack[] metadata = [];
+        try
+        {
+            metadata = (await tracks.GetAll<CachedTrack>(maxResults: 100000)).ToArray();
+            foreach (var track in metadata)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (track.KeyFingerprint != oldFingerprint)
+                {
+                    throw new CryptographicException($"Cached track {track.Id} is not encrypted with the current key.");
+                }
+
+                var encrypted = await File.ReadAllBytesAsync(track.FilePath, cancellationToken);
+                var plaintext = TrackCacheCryptography.Decrypt(encrypted, oldKey);
+                if (!TrackAudioValidation.TryAnalyze(plaintext, out _))
+                {
+                    throw new InvalidDataException($"Cached track {track.Id} is not valid audio.");
+                }
+
+                var stagedPath = $"{track.FilePath}.{Guid.NewGuid():N}.rotation.cache";
+                await File.WriteAllBytesAsync(stagedPath, TrackCacheCryptography.Encrypt(plaintext, newKey), cancellationToken);
+                stagedPaths.Add(stagedPath);
+            }
+
+            for (var index = 0; index < metadata.Length; index++)
+            {
+                var track = metadata[index];
+                var stagedPath = stagedPaths[index];
+                var backupPath = $"{track.FilePath}.{Guid.NewGuid():N}.backup.cache";
+                File.Move(track.FilePath, backupPath, true);
+                backupPaths.Add((track.FilePath, backupPath));
+                File.Move(stagedPath, track.FilePath, true);
+            }
+            stagedPaths.Clear();
+
+            var ids = metadata.Select(track => track.Id).ToArray();
+            if (ids.Length > 0)
+            {
+                await tracks.BulkUpdate(ids, track => track.KeyFingerprint = newFingerprint);
+            }
+            await saveConfiguration();
+            _activeKeyFingerprint = newFingerprint;
+            foreach (var (_, backupPath) in backupPaths) TryDeleteFile(backupPath);
+        }
+        catch
+        {
+            foreach (var (originalPath, backupPath) in backupPaths)
+            {
+                if (File.Exists(backupPath)) File.Move(backupPath, originalPath, true);
+            }
+            var ids = metadata.Select(track => track.Id).ToArray();
+            if (ids.Length > 0)
+            {
+                await tracks.BulkUpdate(ids, track => track.KeyFingerprint = oldFingerprint);
+            }
+            throw;
+        }
+        finally
+        {
+            foreach (var stagedPath in stagedPaths) TryDeleteFile(stagedPath);
+            _gate.Release();
+        }
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
         }
     }
 
@@ -197,6 +340,9 @@ public sealed class TrackCacheStorage(IConfiguration configuration)
             {
                 await RemoveInvalidAsync(repository, encryptionKey, cancellationToken);
             }
+            _activeKeyFingerprint = encryptionKey is null
+                ? null
+                : TrackCacheCryptography.GetFingerprint(encryptionKey);
             await MakeSpaceAsync(repository, maximumCacheBytes, 0, cancellationToken);
         }
         finally
@@ -316,14 +462,19 @@ public sealed class TrackCacheStorage(IConfiguration configuration)
         foreach (var track in metadata)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var isValid = track.KeyFingerprint == fingerprint;
+            var isValid = track.KeyFingerprint == fingerprint
+                && TrackMetadataValidation.IsMeaningful(track.Artist, track.Title);
             try
             {
                 if (isValid)
                 {
                     var encrypted = await File.ReadAllBytesAsync(track.FilePath, cancellationToken);
                     var content = TrackCacheCryptography.Decrypt(encrypted, encryptionKey);
-                    isValid = TrackAudioValidation.TryGetContentType(content, out _);
+                    isValid = TrackAudioValidation.TryAnalyze(content, out var audioInfo);
+                    if (isValid && track.BitrateKbps != audioInfo.BitrateKbps)
+                    {
+                        await tracks.Update<Guid>(track.Id, candidate => candidate.BitrateKbps = audioInfo.BitrateKbps);
+                    }
                 }
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or CryptographicException)
@@ -437,6 +588,8 @@ public sealed class EncryptedTrackCacheWorker(
 
     private async Task CaptureAsync(TrackCaptureRequest request, CancellationToken cancellationToken)
     {
+        if (!TrackMetadataValidation.IsMeaningful(request.Artist, request.Title)) return;
+
         using var scope = scopeFactory.CreateScope();
         var config = await scope.ServiceProvider.GetRequiredService<IGlobalConfigService>().GetAsync(cancellationToken);
         if (!TrackCacheCryptography.TryGetKey(config.TrendingCacheEncryptionKey, out var key)) return;
@@ -461,7 +614,7 @@ public sealed class EncryptedTrackCacheWorker(
             TimeSpan.FromSeconds(config.TrendingCacheCaptureTimeoutSeconds),
             cancellationToken);
         if (audio is null) return;
-        if (!TrackAudioValidation.TryGetContentType(audio, out var contentType))
+        if (!TrackAudioValidation.TryAnalyze(audio, out var audioInfo))
         {
             logger.LogWarning("Discarding invalid capture for {Artist} - {Title}.", request.Artist, request.Title);
             return;
@@ -479,8 +632,9 @@ public sealed class EncryptedTrackCacheWorker(
             NormalizedArtist = normalizedArtist,
             NormalizedTitle = normalizedTitle,
             FilePath = path,
-            ContentType = contentType,
+            ContentType = audioInfo.ContentType,
             PlaintextLength = audio.Length,
+            BitrateKbps = audioInfo.BitrateKbps,
             KeyFingerprint = TrackCacheCryptography.GetFingerprint(key),
             CreatedAt = createdAt,
             ExpiresAt = createdAt.AddHours(config.TrendingCacheRetentionHours)
@@ -533,11 +687,13 @@ public sealed class EncryptedTrackCacheWorker(
     }
 }
 
+internal sealed record TrackAudioInfo(string ContentType, int BitrateKbps);
+
 internal static class TrackAudioValidation
 {
-    public static bool TryGetContentType(byte[] content, out string contentType)
+    public static bool TryAnalyze(byte[] content, out TrackAudioInfo audioInfo)
     {
-        contentType = string.Empty;
+        audioInfo = new TrackAudioInfo(string.Empty, 0);
         try
         {
             using var stream = new MemoryStream(content, writable: false);
@@ -545,7 +701,7 @@ internal static class TrackAudioValidation
             if (track.DurationMs <= 0 || track.SampleRate <= 0 || track.Bitrate <= 0) return false;
 
             var detectedType = track.AudioFormat.MimeList.FirstOrDefault()?.ToLowerInvariant();
-            contentType = detectedType switch
+            var contentType = detectedType switch
             {
                 "audio/aac" or "audio/aacp" => "audio/aac",
                 "audio/flac" or "audio/x-flac" => "audio/flac",
@@ -553,58 +709,14 @@ internal static class TrackAudioValidation
                 "audio/mp3" or "audio/mpeg" => "audio/mpeg",
                 _ => string.Empty
             };
-            return contentType.Length > 0;
+            if (contentType.Length == 0) return false;
+
+            audioInfo = new TrackAudioInfo(contentType, Convert.ToInt32(Math.Round(track.Bitrate)));
+            return true;
         }
         catch (Exception)
         {
             return false;
         }
-    }
-}
-
-internal static class TrackCacheCryptography
-{
-    private static readonly byte[] Header = "MLTC1"u8.ToArray();
-
-    public static bool TryGetKey(string value, out byte[] key)
-    {
-        try
-        {
-            key = Convert.FromBase64String(value.Trim());
-            return key.Length == 32;
-        }
-        catch (FormatException)
-        {
-            key = [];
-            return false;
-        }
-    }
-
-    public static string GetFingerprint(byte[] key) => Convert.ToHexString(SHA256.HashData(key));
-
-    public static byte[] Encrypt(byte[] plaintext, byte[] key)
-    {
-        var nonce = RandomNumberGenerator.GetBytes(12);
-        var tag = new byte[16];
-        var ciphertext = new byte[plaintext.Length];
-        using var aes = new AesGcm(key, tag.Length);
-        aes.Encrypt(nonce, plaintext, ciphertext, tag);
-        return [.. Header, .. nonce, .. tag, .. ciphertext];
-    }
-
-    public static byte[] Decrypt(byte[] encrypted, byte[] key)
-    {
-        const int nonceLength = 12;
-        const int tagLength = 16;
-        if (encrypted.Length <= Header.Length + nonceLength + tagLength
-            || !encrypted.AsSpan(0, Header.Length).SequenceEqual(Header)) throw new CryptographicException("The cached track is invalid.");
-
-        var nonce = encrypted.AsSpan(Header.Length, nonceLength);
-        var tag = encrypted.AsSpan(Header.Length + nonceLength, tagLength);
-        var ciphertext = encrypted.AsSpan(Header.Length + nonceLength + tagLength);
-        var plaintext = new byte[ciphertext.Length];
-        using var aes = new AesGcm(key, tagLength);
-        aes.Decrypt(nonce, ciphertext, tag, plaintext);
-        return plaintext;
     }
 }

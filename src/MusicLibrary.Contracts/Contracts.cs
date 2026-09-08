@@ -48,13 +48,22 @@ public sealed record ProbeStatusSummary(
 	int Page,
 	int PageSize,
 	IReadOnlyCollection<StationProbeStatusSummary> Stations);
-public sealed record NowPlayingSummary(Guid StationId, string StationName, string? Artist, string? Title, string RawMetadata, DateTimeOffset ObservedAt, decimal Confidence);
+public sealed record NowPlayingSummary(
+	Guid StationId,
+	string StationName,
+	string? Artist,
+	string? Title,
+	string RawMetadata,
+	DateTimeOffset ObservedAt,
+	decimal Confidence,
+	string? StreamUrl);
 public sealed record TrendingSummary(
 	string Artist,
 	string? Title,
 	int ObservationCount,
 	int StationCount,
 	DateTimeOffset LastObservedAt,
+	int? BitrateKbps,
 	Guid? CachedTrackId,
 	DateTimeOffset? CachedUntil);
 public sealed record TrendingCacheStatusSummary(long SizeBytes, int SongCount);

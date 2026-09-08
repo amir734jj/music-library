@@ -46,6 +46,25 @@ export async function playFile(content, contentType) {
     }
 }
 
+export async function listenLive(streamUrl) {
+    if (playingAudio !== null) {
+        playingAudio.pause();
+    }
+    if (playingAudioUrl !== null) {
+        globalThis.URL.revokeObjectURL(playingAudioUrl);
+    }
+
+    playingAudioUrl = null;
+    playingAudio = new Audio(streamUrl);
+    playingAudio.addEventListener('error', clearPlayingAudio, { once: true });
+    try {
+        await playingAudio.play();
+    } catch (error) {
+        clearPlayingAudio();
+        throw error;
+    }
+}
+
 export async function toggleFilePlayback() {
     if (playingAudio === null) {
         return -1;
