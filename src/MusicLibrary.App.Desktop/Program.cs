@@ -79,7 +79,7 @@ internal static class Program
                 {
                     using var iconStream = AssetLoader.Open(new Uri("avares://MusicLibrary.App.Desktop/Assets/icon.png"));
                     AppIcon.Icon = new WindowIcon(iconStream);
-                    _ = Task.Run(UpdateDesktopAppAsync);
+                    Task.Run(UpdateDesktopAppAsync);
                 })
                 .StartWithClassicDesktopLifetime(args);
         }
