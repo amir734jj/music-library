@@ -110,6 +110,13 @@ export async function toggleFilePlayback() {
     return 0;
 }
 
+export function getPlaybackState() {
+    if (playingAudio === null) {
+        return -1;
+    }
+    return playingAudio.paused ? 0 : 1;
+}
+
 function clearPlayingAudio() {
     if (playingAudioUrl !== null) {
         globalThis.URL.revokeObjectURL(playingAudioUrl);

@@ -13,7 +13,7 @@
         <Button Name="SignOutButton" Content="Sign out" Click="SignOut_Click" IsVisible="False" />
       </StackPanel>
     </Grid>
-    <Grid Name="MainShell" Grid.Row="1" ColumnDefinitions="240,16,*" RowDefinitions="*,Auto">
+    <Grid Name="MainShell" Grid.Row="1" ColumnDefinitions="240,16,*" RowDefinitions="*,12,Auto">
       <Border Name="LibraryNavigation" Classes="panel">
         <ScrollViewer Name="LibraryNavigationScroll" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Disabled">
           <StackPanel Name="LibraryNavigationPanel" Spacing="8">
@@ -21,6 +21,8 @@
             <Button Name="NowPlayingNavigationButton" Classes="nav" Content="Now playing" HorizontalContentAlignment="Left" Click="Library_Click" />
             <Button Name="FollowingNavigationButton" Classes="nav" Content="Following" HorizontalContentAlignment="Left" Click="Following_Click" />
             <Button Name="TrendingNavigationButton" Classes="nav" Content="Trending" HorizontalContentAlignment="Left" Click="Trending_Click" />
+            <Button Name="UserBoardNavigationButton" Classes="nav" Content="User board" HorizontalContentAlignment="Left" Click="UserBoard_Click" />
+            <Button Name="AboutNavigationButton" Classes="nav" Content="About" HorizontalContentAlignment="Left" Click="About_Click" />
             <Separator Name="AdministrationSeparator" Margin="0,6" IsVisible="False" />
             <Button Name="AdministrationButton" Content="Administration" HorizontalContentAlignment="Left" IsVisible="False" Click="Administration_Click" />
           </StackPanel>
@@ -136,6 +138,16 @@
           </TabControl>
         </Border>
       </Grid>
+      <Border Name="PlaybackDock" Grid.Row="2" Grid.ColumnSpan="3" Classes="panel" IsVisible="False">
+        <Grid ColumnDefinitions="Auto,12,*,12,Auto">
+          <PathIcon Name="PlaybackDockIcon" Data="M8,5.14V19.14L19,12.14L8,5.14Z" Width="20" Height="20" VerticalAlignment="Center" />
+          <StackPanel Grid.Column="2" Spacing="2" VerticalAlignment="Center">
+            <TextBlock Name="PlaybackDockTitle" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+            <TextBlock Name="PlaybackDockSubtitle" FontSize="12" Opacity="0.7" TextTrimming="CharacterEllipsis" />
+          </StackPanel>
+          <Button Name="PlaybackDockButton" Grid.Column="4" Width="40" Height="36" Click="PlaybackDockButton_Click" />
+        </Grid>
+      </Border>
     </Grid>
     </Grid>
   </Grid>

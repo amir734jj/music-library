@@ -33,6 +33,15 @@ public interface IMusicLibraryApiClient
     [Get("/api/trending/{cachedTrackId}/download")]
     Task<HttpResponseMessage> DownloadTrendingTrackAsync(Guid cachedTrackId, [Authorize] string accessToken, CancellationToken cancellationToken = default);
 
+    [Get("/api/playback-activity")]
+    Task<ApiResponse<List<UserPlaybackActivitySummary>>> GetPlaybackActivitiesAsync([Authorize] string accessToken, CancellationToken cancellationToken = default);
+
+    [Put("/api/playback-activity")]
+    Task<IApiResponse> UpdatePlaybackActivityAsync([Body] UpdatePlaybackActivityRequest request, [Authorize] string accessToken, CancellationToken cancellationToken = default);
+
+    [Delete("/api/playback-activity")]
+    Task<IApiResponse> ClearPlaybackActivityAsync([Authorize] string accessToken, CancellationToken cancellationToken = default);
+
     [Get("/api/subscriptions")]
     Task<ApiResponse<List<ArtistSubscriptionSummary>>> GetSubscriptionsAsync([Authorize] string accessToken, CancellationToken cancellationToken = default);
 

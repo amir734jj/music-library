@@ -18,6 +18,8 @@ public sealed class MusicLibraryDbContext(DbContextOptions<MusicLibraryDbContext
 
     public DbSet<UserAlert> UserAlerts => Set<UserAlert>();
 
+    public DbSet<UserPlaybackActivity> UserPlaybackActivities => Set<UserPlaybackActivity>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);

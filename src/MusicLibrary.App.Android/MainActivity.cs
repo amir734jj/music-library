@@ -62,6 +62,8 @@ public sealed class MainActivity : AvaloniaMainActivity
             _cachedTrackPlayer.Start();
             return Task.FromResult(1);
         };
+        NativeRadioActions.GetPlaybackStateAsync = () => Task.FromResult(
+            _cachedTrackPlayer is null ? -1 : _cachedTrackPlayer.IsPlaying ? 1 : 0);
         NativeRadioActions.PlayFileToCompletionAsync = PlayCachedTrackToCompletionAsync;
         NativeRadioActions.SaveFileAsync = (content, _, fileName) =>
         {

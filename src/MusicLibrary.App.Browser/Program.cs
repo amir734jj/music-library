@@ -34,6 +34,12 @@ internal static class Program
             }
         };
         NativeRadioActions.ToggleFilePlaybackAsync = BrowserAuthenticationSessionStorage.ToggleFilePlaybackAsync;
+        NativeRadioActions.GetPlaybackStateAsync = () => Task.FromResult(BrowserAuthenticationSessionStorage.GetPlaybackState());
+        NativeRadioActions.StopPlaybackAsync = () =>
+        {
+            BrowserAuthenticationSessionStorage.StopPlayback();
+            return Task.CompletedTask;
+        };
         NativeRadioActions.SaveFileAsync = (content, contentType, fileName) =>
         {
             BrowserAuthenticationSessionStorage.DownloadFile(content, contentType, fileName);

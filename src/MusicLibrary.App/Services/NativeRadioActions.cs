@@ -8,5 +8,7 @@ public static class NativeRadioActions
     public static Func<byte[], string, string, Task>? PlayFileAsync { get; set; }
     public static Func<byte[], string, string, CancellationToken, Task>? PlayFileToCompletionAsync { get; set; }
     public static Func<Task<int>>? ToggleFilePlaybackAsync { get; set; }
+    public static Func<Task<int>>? GetPlaybackStateAsync { get; set; }
+    public static Func<Task>? StopPlaybackAsync { get; set; }
     public static Func<byte[], string, string, Task<string>>? SaveFileAsync { get; set; }
 }

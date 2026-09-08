@@ -173,7 +173,15 @@ public sealed class EncryptedTrackCacheWorker(
             }
             eventArgs.SongInfo.Dispose();
         };
-        ripper.StreamFailedHandlers += (_, _) => completion.TrySetResult(null);
+        ripper.StreamFailedHandlers += (_, _) =>
+        {
+            logger.LogWarning(
+                "Stream failed while caching {Artist} - {Title} from {StreamUri}.",
+                request.Artist,
+                request.Title,
+                request.StreamUri);
+            completion.TrySetResult(null);
+        };
         ripper.StreamEndedEventHandlers += (_, _) => completion.TrySetResult(null);
         await using var cancellationRegistration = timeoutSource.Token.Register(() => completion.TrySetResult(null));
         ripper.Start();

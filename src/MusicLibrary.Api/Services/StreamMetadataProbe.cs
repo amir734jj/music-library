@@ -4,7 +4,9 @@ using StreamRipper.Models;
 
 namespace MusicLibrary.Api.Services;
 
-public sealed partial class StreamMetadataProbe(IStreamRipperFactory streamRipperFactory) : IStreamMetadataProbe
+public sealed partial class StreamMetadataProbe(
+    IStreamRipperFactory streamRipperFactory,
+    ILogger<StreamMetadataProbe> logger) : IStreamMetadataProbe
 {
     [GeneratedRegex("(?:^|;)\\s*StreamTitle='(?<value>(?:\\\\.|[^'])*)'", RegexOptions.IgnoreCase)]
     private static partial Regex StreamTitlePattern();
@@ -27,6 +29,7 @@ public sealed partial class StreamMetadataProbe(IStreamRipperFactory streamRippe
         };
         ripper.StreamFailedHandlers += (_, _) =>
         {
+            logger.LogWarning("Stream failed while probing station metadata from {StreamUri}.", streamUri);
             completion.TrySetResult(null);
         };
         ripper.StreamEndedEventHandlers += (_, _) =>

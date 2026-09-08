@@ -14,17 +14,21 @@ public sealed partial class MainView : UserControl
     {
         NowPlaying,
         Following,
-        Trending
+        Trending,
+        UserBoard,
+        About
     }
 
     private const int ProbePageSize = 100;
     private static readonly Dictionary<string, Geometry> ActionIconGeometries = [];
     private readonly SemaphoreSlim _nowPlayingLoadGate = new(1, 1);
+    private readonly SemaphoreSlim _playbackActivitySyncGate = new(1, 1);
     private readonly SemaphoreSlim _probeStatusLoadGate = new(1, 1);
     private readonly HashSet<string> _subscribedArtists = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, List<Button>> _subscriptionButtons = new(StringComparer.OrdinalIgnoreCase);
     private CancellationTokenSource? _librarySearchCancellation;
     private CancellationTokenSource? _libraryPollingCancellation;
+    private CancellationTokenSource? _playbackActivityHeartbeatCancellation;
     private CancellationTokenSource? _trendingBatchDownloadCancellation;
     private CancellationTokenSource? _trendingPlaybackCancellation;
     private CancellationTokenSource? _probeSearchCancellation;
@@ -40,9 +44,15 @@ public sealed partial class MainView : UserControl
     private IReadOnlyCollection<NowPlayingSummary> _nowPlayingSnapshot = [];
     private IReadOnlyCollection<ArtistSubscriptionSummary> _followingSnapshot = [];
     private IReadOnlyCollection<TrendingSummary> _trendingSnapshot = [];
+    private IReadOnlyCollection<UserPlaybackActivitySummary> _playbackActivitySnapshot = [];
+    private Guid? _playingStationId;
+    private Button? _playingStationButton;
     private Guid? _playingCachedTrackId;
     private Button? _playingCachedTrackButton;
     private bool _isCachedTrackPlaying;
+    private string? _playbackActivityDescription;
+    private bool _playbackActivityIsLiveStation;
+    private bool _isPlaybackActivityActive;
     private bool _subscriptionsLoaded;
     private bool? _isCompactLayout;
 
@@ -96,6 +106,7 @@ public sealed partial class MainView : UserControl
     {
         _librarySearchCancellation?.Cancel();
         _libraryPollingCancellation?.Cancel();
+        _playbackActivityHeartbeatCancellation?.Cancel();
         _trendingBatchDownloadCancellation?.Cancel();
         _trendingPlaybackCancellation?.Cancel();
         _probeSearchCancellation?.Cancel();
@@ -127,7 +138,7 @@ public sealed partial class MainView : UserControl
             CurrentUserStatus.IsVisible = false;
 
             MainShell.ColumnDefinitions = new ColumnDefinitions("*");
-            MainShell.RowDefinitions = new RowDefinitions("Auto,12,*");
+            MainShell.RowDefinitions = new RowDefinitions("Auto,12,*,12,Auto");
             LibraryNavigationPanel.Orientation = Avalonia.Layout.Orientation.Horizontal;
             LibraryNavigationTitle.IsVisible = false;
             LibraryNavigationScroll.HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto;
@@ -135,6 +146,9 @@ public sealed partial class MainView : UserControl
             Grid.SetRow(LibraryView, 2);
             Grid.SetColumn(AdministrationView, 0);
             Grid.SetRow(AdministrationView, 2);
+            Grid.SetColumn(PlaybackDock, 0);
+            Grid.SetColumnSpan(PlaybackDock, 1);
+            Grid.SetRow(PlaybackDock, 4);
             AdministrationHeader.ColumnDefinitions = new ColumnDefinitions("*");
             AdministrationHeader.RowDefinitions = new RowDefinitions("Auto,8,Auto");
             Grid.SetColumn(BackToLibraryButton, 0);
@@ -152,7 +166,7 @@ public sealed partial class MainView : UserControl
             CurrentUserStatus.IsVisible = true;
 
             MainShell.ColumnDefinitions = new ColumnDefinitions("240,16,*");
-            MainShell.RowDefinitions = new RowDefinitions("*,Auto");
+            MainShell.RowDefinitions = new RowDefinitions("*,12,Auto");
             LibraryNavigationPanel.Orientation = Avalonia.Layout.Orientation.Vertical;
             LibraryNavigationTitle.IsVisible = true;
             LibraryNavigationScroll.HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled;
@@ -160,6 +174,9 @@ public sealed partial class MainView : UserControl
             Grid.SetRow(LibraryView, 0);
             Grid.SetColumn(AdministrationView, 2);
             Grid.SetRow(AdministrationView, 0);
+            Grid.SetColumn(PlaybackDock, 0);
+            Grid.SetColumnSpan(PlaybackDock, 3);
+            Grid.SetRow(PlaybackDock, 2);
             AdministrationHeader.ColumnDefinitions = new ColumnDefinitions("*,Auto");
             AdministrationHeader.RowDefinitions = new RowDefinitions("Auto");
             Grid.SetColumn(BackToLibraryButton, 1);
@@ -232,6 +249,7 @@ public sealed partial class MainView : UserControl
         _probeSearchCancellation?.Cancel();
         _probeStatusPollingCancellation?.Cancel();
         _sessionExpiryCancellation?.Cancel();
+        StopPublishingPlaybackActivity();
         MusicLibraryApi.SignOut();
         ApplicationView.IsVisible = false;
         AuthenticationView.IsVisible = true;
@@ -281,6 +299,20 @@ public sealed partial class MainView : UserControl
         _ = LoadCurrentLibraryViewAsync();
     }
 
+    private void UserBoard_Click(object? sender, RoutedEventArgs eventArgs)
+    {
+        SetLibraryMode(LibraryMode.UserBoard);
+        ShowLibrary();
+        _ = LoadCurrentLibraryViewAsync();
+    }
+
+    private void About_Click(object? sender, RoutedEventArgs eventArgs)
+    {
+        SetLibraryMode(LibraryMode.About);
+        ShowLibrary();
+        ShowAbout();
+    }
+
     private void SetLibraryMode(LibraryMode mode)
     {
         _librarySearchCancellation?.Cancel();
@@ -291,6 +323,10 @@ public sealed partial class MainView : UserControl
         NowPlayingNavigationButton.Classes.Set("active", mode == LibraryMode.NowPlaying);
         FollowingNavigationButton.Classes.Set("active", mode == LibraryMode.Following);
         TrendingNavigationButton.Classes.Set("active", mode == LibraryMode.Trending);
+        UserBoardNavigationButton.Classes.Set("active", mode == LibraryMode.UserBoard);
+        AboutNavigationButton.Classes.Set("active", mode == LibraryMode.About);
+        LibrarySearchInput.IsVisible = mode != LibraryMode.About;
+        NowPlayingStatus.IsVisible = mode != LibraryMode.About;
         PlayAllTrendingButton.IsVisible = mode == LibraryMode.Trending
             && NativeRadioActions.PlayFileToCompletionAsync is not null;
         DownloadAllTrendingButton.IsVisible = mode == LibraryMode.Trending && ShowNativeMedia;
@@ -298,12 +334,16 @@ public sealed partial class MainView : UserControl
         {
             LibraryMode.Following => "Following",
             LibraryMode.Trending => "Trending Now",
+            LibraryMode.UserBoard => "User board",
+            LibraryMode.About => "About",
             _ => "Now Playing"
         };
         LibrarySearchInput.PlaceholderText = mode switch
         {
             LibraryMode.Following => "Search followed artists",
             LibraryMode.Trending => "Search trending artist or track",
+            LibraryMode.UserBoard => "Search listeners or playback",
+            LibraryMode.About => string.Empty,
             _ => "Search artist, track, or station"
         };
         _suppressLibrarySearch = true;
@@ -323,7 +363,14 @@ public sealed partial class MainView : UserControl
         _probeStatusPollingCancellation?.Cancel();
         AdministrationView.IsVisible = false;
         LibraryView.IsVisible = true;
-        StartNowPlayingPolling();
+        if (_libraryMode == LibraryMode.About)
+        {
+            _libraryPollingCancellation?.Cancel();
+        }
+        else
+        {
+            StartNowPlayingPolling();
+        }
     }
 
     private void StartNowPlayingPolling()
@@ -374,8 +421,119 @@ public sealed partial class MainView : UserControl
         {
             LibraryMode.Following => LoadFollowingAsync(query, cancellationToken, showLoading),
             LibraryMode.Trending => LoadTrendingAsync(query, cancellationToken, showLoading),
+            LibraryMode.UserBoard => LoadPlaybackActivitiesAsync(query, cancellationToken, showLoading),
+            LibraryMode.About => Task.CompletedTask,
             _ => LoadNowPlayingAsync(query, cancellationToken, showLoading)
         };
+    }
+
+    private void ShowAbout()
+    {
+        if (_libraryMode != LibraryMode.About) return;
+        var version = typeof(MainView).Assembly.GetName().Version?.ToString(3) ?? "Development";
+        var content = new StackPanel
+        {
+            Spacing = 12,
+            MaxWidth = 640,
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left
+        };
+        content.Children.Add(new TextBlock
+        {
+            Text = "Music Library",
+            FontSize = 22,
+            FontWeight = Avalonia.Media.FontWeight.SemiBold
+        });
+        content.Children.Add(new TextBlock
+        {
+            Text = "Discover what live radio stations are playing, follow artists, listen to trending recordings, and see what other listeners are enjoying.",
+            TextWrapping = Avalonia.Media.TextWrapping.Wrap
+        });
+        content.Children.Add(new TextBlock
+        {
+            Text = $"Version {version}",
+            Opacity = 0.65
+        });
+        NowPlayingList.ItemsSource = new[] { content };
+    }
+
+    private async Task LoadPlaybackActivitiesAsync(
+        string? query = null,
+        CancellationToken cancellationToken = default,
+        bool showLoading = true)
+    {
+        if (showLoading)
+        {
+            await _nowPlayingLoadGate.WaitAsync(cancellationToken);
+        }
+        else if (!await _nowPlayingLoadGate.WaitAsync(0, cancellationToken))
+        {
+            return;
+        }
+
+        try
+        {
+            if (showLoading)
+            {
+                NowPlayingStatus.Text = "Loading active listeners...";
+                NowPlayingList.ItemsSource = null;
+            }
+            try
+            {
+                var activities = await MusicLibraryApi.GetPlaybackActivitiesAsync(cancellationToken);
+                if (_libraryMode != LibraryMode.UserBoard) return;
+                if (!string.IsNullOrWhiteSpace(query))
+                {
+                    var value = query.Trim();
+                    activities =
+                    [
+                        .. activities.Where(activity =>
+                            activity.UserDisplayName.Contains(value, StringComparison.OrdinalIgnoreCase)
+                            || activity.PlaybackDescription.Contains(value, StringComparison.OrdinalIgnoreCase))
+                    ];
+                }
+                var hasChanges = !_playbackActivitySnapshot.SequenceEqual(activities);
+                if (showLoading || hasChanges)
+                {
+                    _playbackActivitySnapshot = [.. activities];
+                    NowPlayingList.ItemsSource = activities.Select(CreatePlaybackActivityRow).ToList();
+                }
+                NowPlayingStatus.Text = activities.Count == 0
+                    ? "Nobody is listening right now."
+                    : $"{activities.Count} active listener(s) | Updated {DateTime.Now:T}";
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception exception)
+            {
+                NowPlayingStatus.Text = exception.Message;
+            }
+        }
+        finally
+        {
+            _nowPlayingLoadGate.Release();
+        }
+    }
+
+    private Control CreatePlaybackActivityRow(UserPlaybackActivitySummary activity)
+    {
+        var details = new StackPanel
+        {
+            Spacing = 3,
+            Margin = new Avalonia.Thickness(0, 0, 0, 12)
+        };
+        details.Children.Add(new TextBlock
+        {
+            Text = $"{activity.UserDisplayName} is currently playing {activity.PlaybackDescription}",
+            FontWeight = Avalonia.Media.FontWeight.SemiBold,
+            TextWrapping = Avalonia.Media.TextWrapping.Wrap
+        });
+        details.Children.Add(new TextBlock
+        {
+            Text = $"{(activity.IsLiveStation ? "Live station" : "Trending recording")} | Started {FormatRelativeTime(activity.StartedAt)}",
+            Opacity = 0.65
+        });
+        return details;
     }
 
     private async Task LoadNowPlayingAsync(
@@ -462,7 +620,7 @@ public sealed partial class MainView : UserControl
 
         var observedAt = new TextBlock
         {
-            Text = observation.ObservedAt.LocalDateTime.ToString("g"),
+            Text = $"Played {FormatRelativeTime(observation.ObservedAt)}",
             Opacity = 0.65,
             VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
         };
@@ -482,7 +640,10 @@ public sealed partial class MainView : UserControl
                 Height = 32,
                 VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
             };
-            ToolTip.SetTip(listenButton, $"Listen live to {observation.StationName}");
+            listenButton.Classes.Add("playback");
+            var isPlaying = _playingStationId == observation.StationId;
+            if (isPlaying) _playingStationButton = listenButton;
+            SetStationButtonState(listenButton, isPlaying, observation.StationName);
             listenButton.Click += async (_, _) => await ListenToNowPlayingStationAsync(
                 observation.StationId,
                 streamUri,
@@ -527,6 +688,21 @@ public sealed partial class MainView : UserControl
         listenButton.IsEnabled = false;
         try
         {
+            if (_playingStationId == stationId)
+            {
+                if (NativeRadioActions.StopPlaybackAsync is null)
+                {
+                    throw new InvalidOperationException("Stopping live playback is not available on this platform.");
+                }
+                await NativeRadioActions.StopPlaybackAsync();
+                ClearPlaybackState();
+                StopPublishingPlaybackActivity();
+                NowPlayingStatus.Text = $"Stopped listening to {stationName}.";
+                return;
+            }
+
+            ClearPlaybackState();
+            PausePublishingPlaybackActivity();
             if (NativeRadioActions.ListenToStationAsync is not null)
             {
                 await NativeRadioActions.ListenToStationAsync(stationId);
@@ -545,6 +721,11 @@ public sealed partial class MainView : UserControl
                 : string.IsNullOrWhiteSpace(current.Artist)
                     ? current.Title ?? current.RawMetadata
                     : $"{current.Artist} - {current.Title ?? current.RawMetadata}";
+            _playingStationId = stationId;
+            _playingStationButton = listenButton;
+            SetStationButtonState(listenButton, true, stationName);
+            ShowPlaybackDock(stationName, currentTrack ?? "Live radio", isPlaying: true, isLiveStation: true);
+            PublishPlaybackActivity(string.IsNullOrWhiteSpace(currentTrack) ? stationName : $"{stationName}: {currentTrack}", isLiveStation: true);
             NowPlayingStatus.Text = string.IsNullOrWhiteSpace(currentTrack)
                 ? $"Listening live to {stationName}."
                 : $"Listening live to {stationName}: {currentTrack}";
@@ -803,7 +984,7 @@ public sealed partial class MainView : UserControl
         row.Children.Add(details);
         var lastObserved = new TextBlock
         {
-            Text = trend.LastObservedAt.LocalDateTime.ToString("g"),
+            Text = $"Played {FormatRelativeTime(trend.LastObservedAt)}",
             Opacity = 0.65,
             VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
         };
@@ -844,7 +1025,7 @@ public sealed partial class MainView : UserControl
                 _playingCachedTrackButton = playButton;
                 SetPlaybackButtonState(playButton, _isCachedTrackPlaying);
             }
-            playButton.Click += async (_, _) => await PlayTrendingTrackAsync(cachedTrackId, playButton);
+            playButton.Click += async (_, _) => await PlayTrendingTrackAsync(trend, cachedTrackId, playButton);
             downloadButton.Click += async (_, _) => await DownloadTrendingTrackAsync(cachedTrackId, downloadButton);
         }
         actions.Children.Add(playButton);
@@ -855,7 +1036,7 @@ public sealed partial class MainView : UserControl
         return row;
     }
 
-    private async Task PlayTrendingTrackAsync(Guid cachedTrackId, Button playButton)
+    private async Task PlayTrendingTrackAsync(TrendingSummary trend, Guid cachedTrackId, Button playButton)
     {
         if (_trendingBatchDownloadCancellation is not null)
         {
@@ -879,6 +1060,15 @@ public sealed partial class MainView : UserControl
                 {
                     _isCachedTrackPlaying = playbackState == 1;
                     SetPlaybackButtonState(playButton, _isCachedTrackPlaying);
+                    ShowPlaybackDock(GetTrackDisplayName(trend), "Trending recording", _isCachedTrackPlaying, isLiveStation: false);
+                    if (_isCachedTrackPlaying)
+                    {
+                        PublishPlaybackActivity(GetTrackDisplayName(trend), isLiveStation: false);
+                    }
+                    else
+                    {
+                        PausePublishingPlaybackActivity();
+                    }
                     NowPlayingStatus.Text = _isCachedTrackPlaying ? "Playback resumed." : "Playback paused.";
                     return;
                 }
@@ -886,15 +1076,15 @@ public sealed partial class MainView : UserControl
 
             NowPlayingStatus.Text = "Preparing encrypted recording...";
             var download = await MusicLibraryApi.DownloadTrendingTrackAsync(cachedTrackId);
+            ClearPlaybackState();
+            PausePublishingPlaybackActivity();
             await NativeRadioActions.PlayFileAsync(download.Content, download.ContentType, download.FileName);
-            if (_playingCachedTrackButton is not null && _playingCachedTrackButton != playButton)
-            {
-                SetPlaybackButtonState(_playingCachedTrackButton, false);
-            }
             _playingCachedTrackId = cachedTrackId;
             _playingCachedTrackButton = playButton;
             _isCachedTrackPlaying = NativeRadioActions.ToggleFilePlaybackAsync is not null;
             SetPlaybackButtonState(playButton, _isCachedTrackPlaying);
+            ShowPlaybackDock(GetTrackDisplayName(trend), "Trending recording", _isCachedTrackPlaying, isLiveStation: false);
+            PublishPlaybackActivity(GetTrackDisplayName(trend), isLiveStation: false);
             NowPlayingStatus.Text = $"Playing {download.FileName}";
         }
         catch (Exception exception)
@@ -912,6 +1102,222 @@ public sealed partial class MainView : UserControl
         button.Content = CreateActionIcon(isPlaying ? "mdi-pause" : "mdi-play");
         ToolTip.SetTip(button, isPlaying ? "Pause cached recording" : "Play cached recording");
     }
+
+    private static void SetStationButtonState(Button button, bool isPlaying, string stationName)
+    {
+        button.Content = CreateActionIcon(isPlaying ? "mdi-stop" : "mdi-radio-tower");
+        button.Classes.Set("active", isPlaying);
+        ToolTip.SetTip(button, isPlaying ? $"Stop listening to {stationName}" : $"Listen live to {stationName}");
+    }
+
+    private async void PlaybackDockButton_Click(object? sender, RoutedEventArgs eventArgs)
+    {
+        PlaybackDockButton.IsEnabled = false;
+        try
+        {
+            if (_playingStationId is not null)
+            {
+                if (NativeRadioActions.StopPlaybackAsync is null) return;
+                await NativeRadioActions.StopPlaybackAsync();
+                ClearPlaybackState();
+                StopPublishingPlaybackActivity();
+                NowPlayingStatus.Text = "Live playback stopped.";
+                return;
+            }
+
+            if (_trendingPlaybackCancellation is not null)
+            {
+                _trendingPlaybackCancellation.Cancel();
+                return;
+            }
+
+            if (_playingCachedTrackId is null || NativeRadioActions.ToggleFilePlaybackAsync is null) return;
+            var playbackState = await NativeRadioActions.ToggleFilePlaybackAsync();
+            if (playbackState < 0)
+            {
+                ClearPlaybackState();
+                StopPublishingPlaybackActivity();
+                return;
+            }
+            _isCachedTrackPlaying = playbackState == 1;
+            if (_playingCachedTrackButton is not null) SetPlaybackButtonState(_playingCachedTrackButton, _isCachedTrackPlaying);
+            SetPlaybackDockButtonState(_isCachedTrackPlaying, isLiveStation: false);
+            if (_isCachedTrackPlaying)
+            {
+                if (_playbackActivityDescription is not null)
+                {
+                    PublishPlaybackActivity(_playbackActivityDescription, _playbackActivityIsLiveStation);
+                }
+            }
+            else
+            {
+                PausePublishingPlaybackActivity();
+            }
+        }
+        finally
+        {
+            PlaybackDockButton.IsEnabled = true;
+        }
+    }
+
+    private void ShowPlaybackDock(string title, string subtitle, bool isPlaying, bool isLiveStation)
+    {
+        PlaybackDockTitle.Text = title;
+        PlaybackDockSubtitle.Text = subtitle;
+        PlaybackDockIcon.Data = ActionIconGeometries.TryGetValue(isLiveStation ? "mdi-radio-tower" : "mdi-music", out var geometry)
+            ? geometry
+            : CreateActionIcon(isLiveStation ? "mdi-radio-tower" : "mdi-music").Data;
+        PlaybackDock.IsVisible = true;
+        SetPlaybackDockButtonState(isPlaying, isLiveStation);
+    }
+
+    private void SetPlaybackDockButtonState(bool isPlaying, bool isLiveStation)
+    {
+        PlaybackDockButton.Content = CreateActionIcon(isLiveStation ? "mdi-stop" : isPlaying ? "mdi-pause" : "mdi-play");
+        ToolTip.SetTip(PlaybackDockButton, isLiveStation ? "Stop live playback" : isPlaying ? "Pause playback" : "Resume playback");
+    }
+
+    private void ClearPlaybackState()
+    {
+        if (_playingStationButton is not null)
+        {
+            SetStationButtonState(_playingStationButton, false, PlaybackDockTitle.Text ?? "station");
+        }
+        if (_playingCachedTrackButton is not null) SetPlaybackButtonState(_playingCachedTrackButton, false);
+        _playingStationId = null;
+        _playingStationButton = null;
+        _playingCachedTrackId = null;
+        _playingCachedTrackButton = null;
+        _isCachedTrackPlaying = false;
+        PlaybackDock.IsVisible = false;
+    }
+
+    private void PublishPlaybackActivity(string description, bool isLiveStation)
+    {
+        _playbackActivityDescription = description;
+        _playbackActivityIsLiveStation = isLiveStation;
+        _isPlaybackActivityActive = true;
+        _ = SyncPlaybackActivityAsync(description, isLiveStation, clear: false);
+        StartPlaybackActivityHeartbeat();
+    }
+
+    private void PausePublishingPlaybackActivity()
+    {
+        _isPlaybackActivityActive = false;
+        _playbackActivityHeartbeatCancellation?.Cancel();
+        _ = SyncPlaybackActivityAsync(null, isLiveStation: false, clear: true);
+    }
+
+    private void StopPublishingPlaybackActivity()
+    {
+        _playbackActivityDescription = null;
+        _playbackActivityIsLiveStation = false;
+        _isPlaybackActivityActive = false;
+        _playbackActivityHeartbeatCancellation?.Cancel();
+        _ = SyncPlaybackActivityAsync(null, isLiveStation: false, clear: true);
+    }
+
+    private void StartPlaybackActivityHeartbeat()
+    {
+        var getPlaybackStateAsync = NativeRadioActions.GetPlaybackStateAsync;
+        if (getPlaybackStateAsync is null) return;
+        _playbackActivityHeartbeatCancellation?.Cancel();
+        var cancellation = _playbackActivityHeartbeatCancellation = new CancellationTokenSource();
+        _ = HeartbeatPlaybackActivityAsync(getPlaybackStateAsync, cancellation.Token);
+    }
+
+    private async Task HeartbeatPlaybackActivityAsync(
+        Func<Task<int>> getPlaybackStateAsync,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(30), cancellationToken);
+                if (!_isPlaybackActivityActive || _playbackActivityDescription is null) return;
+                var playbackState = await getPlaybackStateAsync();
+                if (playbackState <= 0)
+                {
+                    if (playbackState < 0) ClearPlaybackState();
+                    PausePublishingPlaybackActivity();
+                    return;
+                }
+
+                if (_playbackActivityIsLiveStation && _playingStationId is { } stationId)
+                {
+                    var current = await MusicLibraryApi.GetNowPlayingStationAsync(stationId, cancellationToken);
+                    var currentTrack = current is null
+                        ? null
+                        : string.IsNullOrWhiteSpace(current.Artist)
+                            ? current.Title ?? current.RawMetadata
+                            : $"{current.Artist} - {current.Title ?? current.RawMetadata}";
+                    var stationName = PlaybackDockTitle.Text ?? "Live station";
+                    _playbackActivityDescription = string.IsNullOrWhiteSpace(currentTrack)
+                        ? stationName
+                        : $"{stationName}: {currentTrack}";
+                    PlaybackDockSubtitle.Text = currentTrack ?? "Live radio";
+                }
+
+                await SyncPlaybackActivityAsync(
+                    _playbackActivityDescription,
+                    _playbackActivityIsLiveStation,
+                    clear: false,
+                    cancellationToken);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    private async Task SyncPlaybackActivityAsync(
+        string? description,
+        bool isLiveStation,
+        bool clear,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await _playbackActivitySyncGate.WaitAsync(cancellationToken);
+            try
+            {
+                if (clear)
+                {
+                    await MusicLibraryApi.ClearPlaybackActivityAsync(cancellationToken);
+                }
+                else if (description is not null)
+                {
+                    await MusicLibraryApi.UpdatePlaybackActivityAsync(description, isLiveStation, cancellationToken);
+                }
+            }
+            finally
+            {
+                _playbackActivitySyncGate.Release();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception exception)
+        {
+            System.Diagnostics.Debug.WriteLine($"Playback activity sync failed: {exception}");
+        }
+    }
+
+    private static string GetTrackDisplayName(TrendingSummary trend) =>
+        string.IsNullOrWhiteSpace(trend.Title) ? trend.Artist : $"{trend.Artist} - {trend.Title}";
+
+    private static string FormatRelativeTime(DateTimeOffset timestamp)
+    {
+        var elapsed = DateTimeOffset.UtcNow - timestamp.ToUniversalTime();
+        if (elapsed < TimeSpan.Zero || elapsed < TimeSpan.FromMinutes(1)) return "just now";
+        if (elapsed < TimeSpan.FromHours(1)) return FormatElapsedUnit((int)elapsed.TotalMinutes, "minute");
+        if (elapsed < TimeSpan.FromDays(1)) return FormatElapsedUnit((int)elapsed.TotalHours, "hour");
+        return FormatElapsedUnit((int)elapsed.TotalDays, "day");
+    }
+
+    private static string FormatElapsedUnit(int value, string unit) => $"{value} {unit}{(value == 1 ? string.Empty : "s")} ago";
 
     private static PathIcon CreateActionIcon(string value)
     {
@@ -1047,12 +1453,11 @@ public sealed partial class MainView : UserControl
             return;
         }
 
-        var cachedTrackIds = _trendingSnapshot
+        var cachedTracks = _trendingSnapshot
             .Where(trend => trend.CachedTrackId is not null)
-            .Select(trend => trend.CachedTrackId!.Value)
-            .Distinct()
+            .DistinctBy(trend => trend.CachedTrackId)
             .ToList();
-        if (cachedTrackIds.Count == 0)
+        if (cachedTracks.Count == 0)
         {
             NowPlayingStatus.Text = "No cached trending recordings are ready to play.";
             return;
@@ -1067,13 +1472,19 @@ public sealed partial class MainView : UserControl
             while (!cancellation.IsCancellationRequested)
             {
                 var playedCount = 0;
-                for (var index = 0; index < cachedTrackIds.Count; index++)
+                for (var index = 0; index < cachedTracks.Count; index++)
                 {
                     cancellation.Token.ThrowIfCancellationRequested();
-                    NowPlayingStatus.Text = $"Playing trending recording {index + 1} of {cachedTrackIds.Count} (loop {cycle})...";
+                    var trend = cachedTracks[index];
+                    NowPlayingStatus.Text = $"Playing trending recording {index + 1} of {cachedTracks.Count} (loop {cycle})...";
                     try
                     {
-                        var download = await MusicLibraryApi.DownloadTrendingTrackAsync(cachedTrackIds[index], cancellation.Token);
+                        var download = await MusicLibraryApi.DownloadTrendingTrackAsync(trend.CachedTrackId!.Value, cancellation.Token);
+                        ClearPlaybackState();
+                        ShowPlaybackDock(GetTrackDisplayName(trend), $"Trending playlist | Track {index + 1} of {cachedTracks.Count}", isPlaying: true, isLiveStation: false);
+                        PlaybackDockButton.Content = CreateActionIcon("mdi-stop");
+                        ToolTip.SetTip(PlaybackDockButton, "Stop trending playback");
+                        PublishPlaybackActivity(GetTrackDisplayName(trend), isLiveStation: false);
                         await NativeRadioActions.PlayFileToCompletionAsync(
                             download.Content,
                             download.ContentType,
@@ -1112,6 +1523,8 @@ public sealed partial class MainView : UserControl
                 _trendingPlaybackCancellation = null;
                 PlayAllTrendingButtonText.Text = "Play all";
                 DownloadAllTrendingButton.IsEnabled = true;
+                ClearPlaybackState();
+                StopPublishingPlaybackActivity();
             }
             cancellation.Dispose();
         }
@@ -1126,6 +1539,8 @@ public sealed partial class MainView : UserControl
         NowPlayingNavigationButton.Classes.Set("active", false);
         FollowingNavigationButton.Classes.Set("active", false);
         TrendingNavigationButton.Classes.Set("active", false);
+        UserBoardNavigationButton.Classes.Set("active", false);
+        AboutNavigationButton.Classes.Set("active", false);
         LibraryView.IsVisible = false;
         AdministrationView.IsVisible = true;
         await Task.WhenAll(LoadAdminUsersAsync(), LoadProbeStatusAsync(), LoadGlobalConfigAsync());

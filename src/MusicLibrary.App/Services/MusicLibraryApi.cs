@@ -171,6 +171,35 @@ public static class MusicLibraryApi
         return new DownloadedTrack(content, contentType, fileName);
     }
 
+    public static async Task<IReadOnlyCollection<UserPlaybackActivitySummary>> GetPlaybackActivitiesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        if (!IsAuthenticated) throw new InvalidOperationException("An authenticated session is required.");
+        using var response = await Client.GetPlaybackActivitiesAsync(_authentication!.AccessToken, cancellationToken);
+        EnsureSuccess(response);
+        return GetContent(response);
+    }
+
+    public static async Task UpdatePlaybackActivityAsync(
+        string playbackDescription,
+        bool isLiveStation,
+        CancellationToken cancellationToken = default)
+    {
+        if (!IsAuthenticated) throw new InvalidOperationException("An authenticated session is required.");
+        using var response = await Client.UpdatePlaybackActivityAsync(
+            new UpdatePlaybackActivityRequest(playbackDescription, isLiveStation),
+            _authentication!.AccessToken,
+            cancellationToken);
+        EnsureSuccess(response);
+    }
+
+    public static async Task ClearPlaybackActivityAsync(CancellationToken cancellationToken = default)
+    {
+        if (!IsAuthenticated) return;
+        using var response = await Client.ClearPlaybackActivityAsync(_authentication!.AccessToken, cancellationToken);
+        EnsureSuccess(response);
+    }
+
     public static async Task<IReadOnlyCollection<ArtistSubscriptionSummary>> GetSubscriptionsAsync(CancellationToken cancellationToken = default)
     {
         if (!IsAuthenticated) throw new InvalidOperationException("An authenticated session is required.");
