@@ -13,9 +13,11 @@ public sealed partial class AuthenticationView : UserControl
     public AuthenticationView()
     {
         InitializeComponent();
+        OfflineButton.IsVisible = NativeRadioActions.ListOfflineTracksAsync is not null;
     }
 
     public event EventHandler<AuthenticatedEventArgs>? Authenticated;
+    public event EventHandler? OfflineRequested;
 
     public void Reset()
     {
@@ -79,6 +81,11 @@ public sealed partial class AuthenticationView : UserControl
     private void AuthenticationMode_Click(object? sender, RoutedEventArgs eventArgs)
     {
         SetAuthenticationMode(!_isRegistrationMode);
+    }
+
+    private void Offline_Click(object? sender, RoutedEventArgs eventArgs)
+    {
+        OfflineRequested?.Invoke(this, EventArgs.Empty);
     }
 
     private void SetAuthenticationMode(bool registration, string? status = null)

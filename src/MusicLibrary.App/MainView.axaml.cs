@@ -16,6 +16,7 @@ public sealed partial class MainView : UserControl
         Stations,
         Following,
         Trending,
+        Offline,
         UserBoard,
         About
     }
@@ -50,6 +51,8 @@ public sealed partial class MainView : UserControl
     private Button? _playingStationButton;
     private Guid? _playingCachedTrackId;
     private Button? _playingCachedTrackButton;
+    private string? _playingOfflineTrackKey;
+    private Button? _playingOfflineTrackButton;
     private bool _isCachedTrackPlaying;
     private string? _playbackActivityDescription;
     private bool _playbackActivityIsLiveStation;
@@ -62,6 +65,8 @@ public sealed partial class MainView : UserControl
     {
         get { return !IsBrowserHost; }
     }
+    public bool ShowOfflineMode => NativeRadioActions.ListOfflineTracksAsync is not null;
+    public bool ShowStreamRecorder => ShowNativeMedia && !ShowOfflineMode;
 
     public MainView() : this(showAdministration: false)
     {
@@ -72,6 +77,7 @@ public sealed partial class MainView : UserControl
         IsBrowserHost = showAdministration;
         InitializeComponent();
         AuthenticationView.Authenticated += AuthenticationView_Authenticated;
+        AuthenticationView.OfflineRequested += AuthenticationView_OfflineRequested;
         MusicLibraryApi.SessionInvalidated += MusicLibraryApi_SessionInvalidated;
         AuthenticationView.IsVisible = true;
         ApplicationView.IsVisible = false;
@@ -215,20 +221,47 @@ public sealed partial class MainView : UserControl
         _ = LoadNowPlayingAsync();
     }
 
+    private void AuthenticationView_OfflineRequested(object? sender, EventArgs eventArgs)
+    {
+        AuthenticationView.IsVisible = false;
+        ApplicationView.IsVisible = true;
+        CurrentUserStatus.Text = "Offline";
+        ApiConnectionStatus.Text = "Offline mode";
+        SignOutButton.Content = "Sign in";
+        SignOutButton.IsVisible = true;
+        AdministrationSeparator.IsVisible = false;
+        AdministrationButton.IsVisible = false;
+        SetOnlineNavigationVisibility(false);
+        SetLibraryMode(LibraryMode.Offline);
+        ShowLibrary();
+        _ = LoadOfflineTracksAsync();
+    }
+
     private void ShowAuthenticatedApplication(UserSummary user)
     {
         _subscribedArtists.Clear();
         _subscriptionsLoaded = false;
         AuthenticationView.IsVisible = false;
         ApplicationView.IsVisible = true;
+        SignOutButton.Content = "Sign out";
         ApplyResponsiveLayout(Bounds.Width);
         CurrentUserStatus.Text = user.DisplayName ?? user.Email;
         var isAdmin = user.Roles.Contains(Roles.Admin);
         AdministrationSeparator.IsVisible = isAdmin;
         AdministrationButton.IsVisible = isAdmin;
+        SetOnlineNavigationVisibility(true);
         SetLibraryMode(LibraryMode.NowPlaying);
         ShowLibrary();
         ScheduleSessionExpiry();
+    }
+
+    private void SetOnlineNavigationVisibility(bool isVisible)
+    {
+        NowPlayingNavigationButton.IsVisible = isVisible;
+        StationsNavigationButton.IsVisible = isVisible;
+        FollowingNavigationButton.IsVisible = isVisible;
+        TrendingNavigationButton.IsVisible = isVisible;
+        UserBoardNavigationButton.IsVisible = isVisible;
     }
 
     private void SignOut_Click(object? sender, RoutedEventArgs eventArgs)
@@ -293,6 +326,13 @@ public sealed partial class MainView : UserControl
         _ = LoadCurrentLibraryViewAsync(LibrarySearchInput.Text);
     }
 
+    private void Offline_Click(object? sender, RoutedEventArgs eventArgs)
+    {
+        SetLibraryMode(LibraryMode.Offline);
+        ShowLibrary();
+        _ = LoadCurrentLibraryViewAsync();
+    }
+
     private void Stations_Click(object? sender, RoutedEventArgs eventArgs)
     {
         SetLibraryMode(LibraryMode.Stations);
@@ -332,6 +372,7 @@ public sealed partial class MainView : UserControl
         StationsNavigationButton.Classes.Set("active", mode == LibraryMode.Stations);
         FollowingNavigationButton.Classes.Set("active", mode == LibraryMode.Following);
         TrendingNavigationButton.Classes.Set("active", mode == LibraryMode.Trending);
+        OfflineNavigationButton.Classes.Set("active", mode == LibraryMode.Offline);
         UserBoardNavigationButton.Classes.Set("active", mode == LibraryMode.UserBoard);
         AboutNavigationButton.Classes.Set("active", mode == LibraryMode.About);
         LibrarySearchInput.IsVisible = mode != LibraryMode.About;
@@ -344,6 +385,7 @@ public sealed partial class MainView : UserControl
             LibraryMode.Following => "Following",
             LibraryMode.Stations => "Stations",
             LibraryMode.Trending => "Trending Now",
+            LibraryMode.Offline => "Offline",
             LibraryMode.UserBoard => "User board",
             LibraryMode.About => "About",
             _ => "Now Playing"
@@ -353,6 +395,7 @@ public sealed partial class MainView : UserControl
             LibraryMode.Following => "Search followed artists",
             LibraryMode.Stations => "Search station, genre, or URL",
             LibraryMode.Trending => "Search trending artist or track",
+            LibraryMode.Offline => "Search downloaded recordings",
             LibraryMode.UserBoard => "Search listeners or playback",
             LibraryMode.About => string.Empty,
             _ => "Search artist, track, or station"
@@ -374,7 +417,7 @@ public sealed partial class MainView : UserControl
         _probeStatusPollingCancellation?.Cancel();
         AdministrationView.IsVisible = false;
         LibraryView.IsVisible = true;
-        if (_libraryMode is LibraryMode.About or LibraryMode.Stations)
+        if (_libraryMode is LibraryMode.About or LibraryMode.Stations or LibraryMode.Offline)
         {
             _libraryPollingCancellation?.Cancel();
         }
@@ -433,11 +476,128 @@ public sealed partial class MainView : UserControl
             LibraryMode.Following => LoadFollowingAsync(query, cancellationToken, showLoading),
             LibraryMode.Stations => LoadStationsAsync(query, cancellationToken, showLoading),
             LibraryMode.Trending => LoadTrendingAsync(query, cancellationToken, showLoading),
+            LibraryMode.Offline => LoadOfflineTracksAsync(query),
             LibraryMode.UserBoard => LoadPlaybackActivitiesAsync(query, cancellationToken, showLoading),
             LibraryMode.About => Task.CompletedTask,
             _ => LoadNowPlayingAsync(query, cancellationToken, showLoading)
         };
     }
+
+    private async Task LoadOfflineTracksAsync(string? query = null)
+    {
+        if (NativeRadioActions.ListOfflineTracksAsync is null) return;
+        NowPlayingStatus.Text = "Loading downloaded recordings...";
+        try
+        {
+            var tracks = await NativeRadioActions.ListOfflineTracksAsync();
+            if (!string.IsNullOrWhiteSpace(query))
+            {
+                tracks = tracks.Where(track => track.Name.Contains(query, StringComparison.OrdinalIgnoreCase)).ToList();
+            }
+            if (_libraryMode != LibraryMode.Offline) return;
+            NowPlayingList.ItemsSource = tracks.Select(CreateOfflineTrackRow).ToList();
+            NowPlayingStatus.Text = tracks.Count == 0
+                ? "No offline recordings. Download songs from Trending to listen without a connection."
+                : $"{tracks.Count} recording(s) available offline";
+        }
+        catch (Exception exception)
+        {
+            NowPlayingStatus.Text = exception.Message;
+        }
+    }
+
+    private Control CreateOfflineTrackRow(OfflineTrack track)
+    {
+        var row = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("*,8,Auto,8,Auto"),
+            Margin = new Avalonia.Thickness(0, 0, 0, 10)
+        };
+        var details = new StackPanel { Spacing = 2 };
+        details.Children.Add(new TextBlock { Text = track.Name, FontWeight = FontWeight.SemiBold, TextWrapping = TextWrapping.Wrap });
+        details.Children.Add(new TextBlock
+        {
+            Text = $"{FormatFileSize(track.SizeBytes)} | Saved {FormatRelativeTime(track.SavedAt)}",
+            Opacity = 0.65
+        });
+        row.Children.Add(details);
+
+        var playButton = new Button { Content = CreateActionIcon("mdi-play"), Width = 36, Height = 32 };
+        ToolTip.SetTip(playButton, "Play offline recording");
+        if (_playingOfflineTrackKey == track.Key)
+        {
+            _playingOfflineTrackButton = playButton;
+            SetPlaybackButtonState(playButton, _isCachedTrackPlaying);
+        }
+        playButton.Click += async (_, _) => await PlayOfflineTrackAsync(track, playButton);
+        Grid.SetColumn(playButton, 2);
+        row.Children.Add(playButton);
+
+        var deleteButton = new Button { Content = CreateActionIcon("mdi-delete"), Width = 36, Height = 32 };
+        ToolTip.SetTip(deleteButton, "Remove offline recording");
+        deleteButton.Click += async (_, _) => await DeleteOfflineTrackAsync(track, deleteButton);
+        Grid.SetColumn(deleteButton, 4);
+        row.Children.Add(deleteButton);
+        return row;
+    }
+
+    private async Task PlayOfflineTrackAsync(OfflineTrack track, Button playButton)
+    {
+        if (NativeRadioActions.PlayOfflineTrackAsync is null) return;
+        playButton.IsEnabled = false;
+        try
+        {
+            if (_playingOfflineTrackKey == track.Key && NativeRadioActions.ToggleFilePlaybackAsync is not null)
+            {
+                _isCachedTrackPlaying = await NativeRadioActions.ToggleFilePlaybackAsync() == 1;
+            }
+            else
+            {
+                ClearPlaybackState();
+                await NativeRadioActions.PlayOfflineTrackAsync(track.Key);
+                _playingOfflineTrackKey = track.Key;
+                _playingOfflineTrackButton = playButton;
+                _isCachedTrackPlaying = true;
+            }
+            SetPlaybackButtonState(playButton, _isCachedTrackPlaying);
+            ShowPlaybackDock(track.Name, "Available offline", _isCachedTrackPlaying, isLiveStation: false);
+            NowPlayingStatus.Text = _isCachedTrackPlaying ? $"Playing {track.Name}" : "Playback paused.";
+        }
+        catch (Exception exception)
+        {
+            ClearPlaybackState();
+            NowPlayingStatus.Text = exception.Message;
+        }
+        finally
+        {
+            playButton.IsEnabled = true;
+        }
+    }
+
+    private async Task DeleteOfflineTrackAsync(OfflineTrack track, Button deleteButton)
+    {
+        if (NativeRadioActions.DeleteOfflineTrackAsync is null) return;
+        deleteButton.IsEnabled = false;
+        try
+        {
+            if (_playingOfflineTrackKey == track.Key)
+            {
+                if (NativeRadioActions.StopPlaybackAsync is not null) await NativeRadioActions.StopPlaybackAsync();
+                ClearPlaybackState();
+            }
+            await NativeRadioActions.DeleteOfflineTrackAsync(track.Key);
+            await LoadOfflineTracksAsync(LibrarySearchInput.Text);
+        }
+        catch (Exception exception)
+        {
+            NowPlayingStatus.Text = exception.Message;
+            deleteButton.IsEnabled = true;
+        }
+    }
+
+    private static string FormatFileSize(long bytes) => bytes >= 1024 * 1024
+        ? $"{bytes / (1024d * 1024d):0.0} MB"
+        : $"{Math.Max(1, bytes / 1024d):0} KB";
 
     private void ShowAbout()
     {
@@ -1249,7 +1409,8 @@ public sealed partial class MainView : UserControl
                 return;
             }
 
-            if (_playingCachedTrackId is null || NativeRadioActions.ToggleFilePlaybackAsync is null) return;
+            if ((_playingCachedTrackId is null && _playingOfflineTrackKey is null)
+                || NativeRadioActions.ToggleFilePlaybackAsync is null) return;
             var playbackState = await NativeRadioActions.ToggleFilePlaybackAsync();
             if (playbackState < 0)
             {
@@ -1259,6 +1420,7 @@ public sealed partial class MainView : UserControl
             }
             _isCachedTrackPlaying = playbackState == 1;
             if (_playingCachedTrackButton is not null) SetPlaybackButtonState(_playingCachedTrackButton, _isCachedTrackPlaying);
+            if (_playingOfflineTrackButton is not null) SetPlaybackButtonState(_playingOfflineTrackButton, _isCachedTrackPlaying);
             SetPlaybackDockButtonState(_isCachedTrackPlaying, isLiveStation: false);
             if (_isCachedTrackPlaying)
             {
@@ -1302,10 +1464,13 @@ public sealed partial class MainView : UserControl
             SetStationButtonState(_playingStationButton, false, PlaybackDockTitle.Text ?? "station");
         }
         if (_playingCachedTrackButton is not null) SetPlaybackButtonState(_playingCachedTrackButton, false);
+        if (_playingOfflineTrackButton is not null) SetPlaybackButtonState(_playingOfflineTrackButton, false);
         _playingStationId = null;
         _playingStationButton = null;
         _playingCachedTrackId = null;
         _playingCachedTrackButton = null;
+        _playingOfflineTrackKey = null;
+        _playingOfflineTrackButton = null;
         _isCachedTrackPlaying = false;
         PlaybackDock.IsVisible = false;
     }

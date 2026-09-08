@@ -14,16 +14,27 @@ public sealed class MainActivity : AvaloniaMainActivity
 {
     private global::Android.Media.MediaPlayer? _cachedTrackPlayer;
     private string? _cachedTrackPath;
+    private bool _deleteCachedTrackOnRelease;
 
     protected override void OnCreate(Bundle? savedInstanceState)
     {
         MusicLibraryApi.Configure(new Uri("https://music-library.coolify.hesamian.com/"));
-        NativeRadioActions.ListenAsync = streamUri =>
+        NativeRadioActions.ListenAsync = async streamUri =>
         {
-            var intent = new Intent(Intent.ActionView);
-            intent.SetDataAndType(global::Android.Net.Uri.Parse(streamUri.AbsoluteUri), "audio/*");
-            StartActivity(Intent.CreateChooser(intent, "Listen live"));
-            return Task.CompletedTask;
+            ReleaseCachedTrackPlayer();
+            var player = CreateAudioPlayer();
+            _cachedTrackPlayer = player;
+            try
+            {
+                await player.SetDataSourceAsync(streamUri.AbsoluteUri);
+                await PreparePlayerAsync(player);
+                player.Start();
+            }
+            catch
+            {
+                ReleaseCachedTrackPlayer();
+                throw;
+            }
         };
         NativeRadioActions.DownloadAsync = (streamUri, duration) =>
         {
@@ -36,14 +47,15 @@ public sealed class MainActivity : AvaloniaMainActivity
             var directory = Path.Combine(CacheDir!.AbsolutePath, "Music Library");
             Directory.CreateDirectory(directory);
             _cachedTrackPath = Path.Combine(directory, $"{Guid.NewGuid():N}{Path.GetExtension(Path.GetFileName(fileName))}");
+            _deleteCachedTrackOnRelease = true;
             await File.WriteAllBytesAsync(_cachedTrackPath, content);
 
-            var player = new global::Android.Media.MediaPlayer();
+            var player = CreateAudioPlayer();
             _cachedTrackPlayer = player;
             try
             {
                 await player.SetDataSourceAsync(_cachedTrackPath);
-                player.PrepareAsync();
+                await PreparePlayerAsync(player);
                 player.Completion += (_, _) => ReleaseCachedTrackPlayer();
                 player.Start();
             }
@@ -68,11 +80,18 @@ public sealed class MainActivity : AvaloniaMainActivity
         NativeRadioActions.GetPlaybackStateAsync = () => Task.FromResult(
             _cachedTrackPlayer is null ? -1 : _cachedTrackPlayer.IsPlaying ? 1 : 0);
         NativeRadioActions.PlayFileToCompletionAsync = PlayCachedTrackToCompletionAsync;
+        NativeRadioActions.StopPlaybackAsync = () =>
+        {
+            ReleaseCachedTrackPlayer();
+            return Task.CompletedTask;
+        };
         NativeRadioActions.SaveFileAsync = (content, _, fileName) =>
         {
-            var directory = GetExternalFilesDir(global::Android.OS.Environment.DirectoryMusic)?.AbsolutePath ?? FilesDir!.AbsolutePath;
-            return NativeStreamDownloader.SaveAsync(content, fileName, directory);
+            return NativeStreamDownloader.SaveAsync(content, fileName, GetOfflineDirectory());
         };
+        NativeRadioActions.ListOfflineTracksAsync = ListOfflineTracksAsync;
+        NativeRadioActions.PlayOfflineTrackAsync = PlayOfflineTrackAsync;
+        NativeRadioActions.DeleteOfflineTrackAsync = DeleteOfflineTrackAsync;
         base.OnCreate(savedInstanceState);
     }
 
@@ -92,32 +111,131 @@ public sealed class MainActivity : AvaloniaMainActivity
         var directory = Path.Combine(CacheDir!.AbsolutePath, "Music Library");
         Directory.CreateDirectory(directory);
         _cachedTrackPath = Path.Combine(directory, $"{Guid.NewGuid():N}{Path.GetExtension(Path.GetFileName(fileName))}");
+        _deleteCachedTrackOnRelease = true;
         await File.WriteAllBytesAsync(_cachedTrackPath, content, cancellationToken);
 
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var player = new global::Android.Media.MediaPlayer();
+        var player = CreateAudioPlayer();
         _cachedTrackPlayer = player;
         player.Completion += (_, _) =>
         {
-            if (_cachedTrackPlayer.Equals(player)) ReleaseCachedTrackPlayer();
+            if (_cachedTrackPlayer == player) ReleaseCachedTrackPlayer();
             completion.TrySetResult();
         };
         await using var cancellationRegistration = cancellationToken.Register(() =>
         {
-            if (_cachedTrackPlayer.Equals(player)) ReleaseCachedTrackPlayer();
+            if (_cachedTrackPlayer == player) ReleaseCachedTrackPlayer();
             completion.TrySetCanceled(cancellationToken);
         });
         try
         {
             await player.SetDataSourceAsync(_cachedTrackPath);
-            player.PrepareAsync();
+            await PreparePlayerAsync(player, cancellationToken);
             player.Start();
             await completion.Task;
         }
         catch
         {
-            if (_cachedTrackPlayer.Equals(player)) ReleaseCachedTrackPlayer();
+            if (_cachedTrackPlayer == player) ReleaseCachedTrackPlayer();
             throw;
+        }
+    }
+
+    private Task<IReadOnlyList<OfflineTrack>> ListOfflineTracksAsync()
+    {
+        var directory = GetOfflineDirectory();
+        Directory.CreateDirectory(directory);
+        IReadOnlyList<OfflineTrack> tracks = new DirectoryInfo(directory)
+            .EnumerateFiles()
+            .Where(file => IsAudioFile(file.Extension))
+            .OrderByDescending(file => file.LastWriteTimeUtc)
+            .Select(file => new OfflineTrack(
+                file.Name,
+                Path.GetFileNameWithoutExtension(file.Name),
+                file.Length,
+                new DateTimeOffset(file.LastWriteTimeUtc, TimeSpan.Zero)))
+            .ToList();
+        return Task.FromResult(tracks);
+    }
+
+    private async Task PlayOfflineTrackAsync(string key)
+    {
+        var path = ResolveOfflineTrackPath(key);
+        ReleaseCachedTrackPlayer();
+        _cachedTrackPath = path;
+        _deleteCachedTrackOnRelease = false;
+        var player = CreateAudioPlayer();
+        _cachedTrackPlayer = player;
+        try
+        {
+            await player.SetDataSourceAsync(path);
+            await PreparePlayerAsync(player);
+            player.Completion += (_, _) => ReleaseCachedTrackPlayer();
+            player.Start();
+        }
+        catch
+        {
+            ReleaseCachedTrackPlayer();
+            throw;
+        }
+    }
+
+    private Task DeleteOfflineTrackAsync(string key)
+    {
+        File.Delete(ResolveOfflineTrackPath(key));
+        return Task.CompletedTask;
+    }
+
+    private string GetOfflineDirectory() =>
+        GetExternalFilesDir(global::Android.OS.Environment.DirectoryMusic)?.AbsolutePath ?? FilesDir!.AbsolutePath;
+
+    private string ResolveOfflineTrackPath(string key)
+    {
+        if (key != Path.GetFileName(key)) throw new InvalidOperationException("Invalid offline recording.");
+        var path = Path.Combine(GetOfflineDirectory(), key);
+        if (!File.Exists(path)) throw new FileNotFoundException("The offline recording no longer exists.", key);
+        return path;
+    }
+
+    private static bool IsAudioFile(string extension) => extension.Equals(".mp3", StringComparison.OrdinalIgnoreCase)
+        || extension.Equals(".m4a", StringComparison.OrdinalIgnoreCase)
+        || extension.Equals(".aac", StringComparison.OrdinalIgnoreCase)
+        || extension.Equals(".ogg", StringComparison.OrdinalIgnoreCase)
+        || extension.Equals(".wav", StringComparison.OrdinalIgnoreCase)
+        || extension.Equals(".flac", StringComparison.OrdinalIgnoreCase);
+
+    private static global::Android.Media.MediaPlayer CreateAudioPlayer()
+    {
+        var player = new global::Android.Media.MediaPlayer();
+        player.SetAudioStreamType(global::Android.Media.Stream.Music);
+        return player;
+    }
+
+    private static async Task PreparePlayerAsync(
+        global::Android.Media.MediaPlayer player,
+        CancellationToken cancellationToken = default)
+    {
+        var prepared = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        EventHandler? preparedHandler = null;
+        EventHandler<global::Android.Media.MediaPlayer.ErrorEventArgs>? errorHandler = null;
+        preparedHandler = (_, _) => prepared.TrySetResult();
+        errorHandler = (_, eventArgs) =>
+        {
+            eventArgs.Handled = true;
+            prepared.TrySetException(new InvalidOperationException($"Android audio preparation failed ({eventArgs.What}, {eventArgs.Extra})."));
+        };
+        player.Prepared += preparedHandler;
+        player.Error += errorHandler;
+        using var registration = cancellationToken.Register(() => prepared.TrySetCanceled(cancellationToken));
+        try
+        {
+            player.PrepareAsync();
+            await prepared.Task;
+        }
+        finally
+        {
+            player.Prepared -= preparedHandler;
+            player.Error -= errorHandler;
         }
     }
 
@@ -126,7 +244,8 @@ public sealed class MainActivity : AvaloniaMainActivity
         _cachedTrackPlayer?.Release();
         _cachedTrackPlayer?.Dispose();
         _cachedTrackPlayer = null;
-        if (_cachedTrackPath is not null) File.Delete(_cachedTrackPath);
+        if (_deleteCachedTrackOnRelease && _cachedTrackPath is not null) File.Delete(_cachedTrackPath);
         _cachedTrackPath = null;
+        _deleteCachedTrackOnRelease = false;
     }
 }

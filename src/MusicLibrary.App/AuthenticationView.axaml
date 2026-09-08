@@ -8,6 +8,7 @@
       <TextBox Name="AuthPasswordInput" PlaceholderText="Password" PasswordChar="*" />
       <TextBox Name="AuthPasswordConfirmationInput" PlaceholderText="Confirm password" PasswordChar="*" IsVisible="False" />
       <Button Name="AuthenticationSubmitButton" Content="Sign in" HorizontalAlignment="Stretch" IsDefault="True" Click="AuthenticationSubmit_Click" />
+      <Button Name="OfflineButton" Content="Continue offline" HorizontalAlignment="Stretch" Click="Offline_Click" />
       <Button Name="AuthenticationModeButton" Content="Register" HorizontalAlignment="Center" Click="AuthenticationMode_Click" />
       <TextBlock Name="AuthenticationStatus" TextWrapping="Wrap" Foreground="#B42318" />
     </StackPanel>
