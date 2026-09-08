@@ -1,6 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using MusicLibrary.Contracts;
+using Projektanker.Icons.Avalonia;
 
 namespace MusicLibrary.App;
 
@@ -720,10 +721,9 @@ public sealed partial class MainView : UserControl
         var cachedUntilText = trend.CachedUntil?.LocalDateTime.ToString("g");
         var playButton = new Button
         {
-            Content = "\u25B6",
+            Content = CreateActionIcon("mdi-play"),
             Width = 36,
             Height = 32,
-            FontSize = 15,
             IsEnabled = trend.CachedTrackId is not null
         };
         ToolTip.SetTip(playButton, cachedUntilText is not null
@@ -731,10 +731,9 @@ public sealed partial class MainView : UserControl
             : "Recording is not ready yet");
         var downloadButton = new Button
         {
-            Content = "\u2B07",
+            Content = CreateActionIcon("mdi-download"),
             Width = 36,
             Height = 32,
-            FontSize = 15,
             IsEnabled = trend.CachedTrackId is not null
         };
         ToolTip.SetTip(downloadButton, cachedUntilText is not null
@@ -806,9 +805,15 @@ public sealed partial class MainView : UserControl
 
     private static void SetPlaybackButtonState(Button button, bool isPlaying)
     {
-        button.Content = isPlaying ? "\u23F8" : "\u25B6";
+        button.Content = CreateActionIcon(isPlaying ? "mdi-pause" : "mdi-play");
         ToolTip.SetTip(button, isPlaying ? "Pause cached recording" : "Play cached recording");
     }
+
+    private static Icon CreateActionIcon(string value) => new()
+    {
+        Value = value,
+        FontSize = 16
+    };
 
     private async Task DownloadTrendingTrackAsync(Guid cachedTrackId, Button downloadButton)
     {

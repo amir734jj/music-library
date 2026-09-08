@@ -9,6 +9,7 @@
     <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.2" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.2" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+    <PackageReference Include="Projektanker.Icons.Avalonia.MaterialDesign" Version="9.6.2" />
     <PackageReference Include="Refit" Version="15.2.0" />
     <PackageReference Include="Refit.Newtonsoft.Json" Version="15.2.0" />
   </ItemGroup>

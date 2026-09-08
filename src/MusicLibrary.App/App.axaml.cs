@@ -1,6 +1,8 @@
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
+using Projektanker.Icons.Avalonia;
+using Projektanker.Icons.Avalonia.MaterialDesign;
 
 namespace MusicLibrary.App;
 
@@ -10,6 +12,7 @@ public class App : Application
 
     public override void Initialize()
     {
+        IconProvider.Current.Register<MaterialDesignIconProvider>();
         AvaloniaXamlLoader.Load(this);
     }
 
