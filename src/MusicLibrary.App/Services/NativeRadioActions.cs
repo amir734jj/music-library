@@ -9,6 +9,8 @@ public sealed record OfflineTrack(
 
 public sealed record LocalStationSubscription(Guid StationId, string StationName);
 
+public sealed record NativePlaybackProgress(TimeSpan Position, TimeSpan Duration, bool CanSeek);
+
 public static class NativeRadioActions
 {
     public static string? OfflineDirectoryPath { get; set; }
@@ -19,6 +21,8 @@ public static class NativeRadioActions
     public static Func<byte[], string, string, CancellationToken, Task>? PlayFileToCompletionAsync { get; set; }
     public static Func<Task<int>>? ToggleFilePlaybackAsync { get; set; }
     public static Func<Task<int>>? GetPlaybackStateAsync { get; set; }
+    public static Func<Task<NativePlaybackProgress?>>? GetPlaybackProgressAsync { get; set; }
+    public static Func<TimeSpan, Task>? SeekPlaybackAsync { get; set; }
     public static Func<Task>? StopPlaybackAsync { get; set; }
     public static Func<byte[], string, string, Task<string>>? SaveFileAsync { get; set; }
     public static Func<Task<IReadOnlyList<OfflineTrack>>>? ListOfflineTracksAsync { get; set; }

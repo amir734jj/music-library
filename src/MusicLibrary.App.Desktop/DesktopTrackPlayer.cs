@@ -1,4 +1,5 @@
 using LibVLCSharp.Shared;
+using MusicLibrary.App.Services;
 using NAudio.Wave;
 using SoundFlow.Abstracts;
 using SoundFlow.Backends.MiniAudio;
@@ -30,6 +31,23 @@ internal static class DesktopTrackPlayer
         {
             return Task.FromResult(_playbackControls?.GetState() ?? -1);
         }
+    }
+
+    public static Task<NativePlaybackProgress?> GetPlaybackProgressAsync()
+    {
+        lock (PlaybackControlsLock)
+        {
+            return Task.FromResult(_playbackControls?.GetProgress());
+        }
+    }
+
+    public static Task SeekAsync(TimeSpan position)
+    {
+        lock (PlaybackControlsLock)
+        {
+            _playbackControls?.Seek(position);
+        }
+        return Task.CompletedTask;
     }
 
     public static async Task PlayToCompletionAsync(
@@ -69,7 +87,9 @@ internal static class DesktopTrackPlayer
                 VLCState.Playing => 1,
                 VLCState.Paused => 0,
                 _ => -1
-            });
+            },
+            () => new NativePlaybackProgress(TimeSpan.Zero, TimeSpan.Zero, CanSeek: false),
+            _ => { });
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         player.EndReached += (_, _) => completion.TrySetResult();
         player.Stopped += (_, _) => completion.TrySetResult();
@@ -95,49 +115,50 @@ internal static class DesktopTrackPlayer
 
     private static async Task PlaySourceAsync(string source, CancellationToken cancellationToken)
     {
-        if (!OperatingSystem.IsWindows())
-        {
-            await PlayWithMiniAudioAsync(source, cancellationToken);
-            return;
-        }
-
-        await using var reader = new MediaFoundationReader(source);
-        using var output = new WaveOutEvent();
+        using var media = new Media(LibVlc.Value, new Uri(source));
+        using var player = new MediaPlayer(media);
         var controls = new PlaybackControls(
-            () => output.PlaybackState switch
+            () => player.State switch
             {
-                NAudio.Wave.PlaybackState.Playing => Pause(output),
-                NAudio.Wave.PlaybackState.Paused => Play(output),
+                VLCState.Playing => Pause(player),
+                VLCState.Paused => Play(player),
                 _ => -1
             },
-            () => output.PlaybackState switch
+            () => player.State switch
             {
-                NAudio.Wave.PlaybackState.Playing => 1,
-                NAudio.Wave.PlaybackState.Paused => 0,
+                VLCState.Playing => 1,
+                VLCState.Paused => 0,
                 _ => -1
+            },
+            () => new NativePlaybackProgress(
+                TimeSpan.FromMilliseconds(Math.Max(0, player.Time)),
+                TimeSpan.FromMilliseconds(Math.Max(0, player.Length)),
+                player.Length > 0),
+            position =>
+            {
+                if (player.Length <= 0) return;
+                player.Time = Convert.ToInt64(Math.Clamp(position.TotalMilliseconds, 0, player.Length));
             });
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        output.PlaybackStopped += (_, eventArgs) =>
-        {
-            if (eventArgs.Exception is not null)
-            {
-                completion.TrySetException(eventArgs.Exception);
-                return;
-            }
-
-            completion.TrySetResult();
-        };
-        await using var cancellationRegistration = cancellationToken.Register(output.Stop);
-        output.Init(reader);
+        player.EndReached += (_, _) => completion.TrySetResult();
+        player.Stopped += (_, _) => completion.TrySetResult();
+        player.EncounteredError += (_, _) =>
+            completion.TrySetException(new InvalidOperationException("LibVLC could not play the cached recording."));
+        using var cancellationRegistration = cancellationToken.Register(player.Stop);
         SetPlaybackControls(controls);
         try
         {
-            output.Play();
+            if (!player.Play())
+            {
+                throw new InvalidOperationException("LibVLC could not start the cached recording.");
+            }
+
             await completion.Task.WaitAsync(cancellationToken);
         }
         finally
         {
             ClearPlaybackControls(controls);
+            player.Stop();
         }
     }
 
@@ -167,7 +188,9 @@ internal static class DesktopTrackPlayer
                 SoundFlow.Enums.PlaybackState.Playing => 1,
                 SoundFlow.Enums.PlaybackState.Paused => 0,
                 _ => -1
-            });
+            },
+            () => new NativePlaybackProgress(TimeSpan.Zero, TimeSpan.Zero, CanSeek: false),
+            _ => { });
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         provider.EndOfStreamReached += (_, _) => completion.TrySetResult();
         output.MasterMixer.AddComponent(player);
@@ -262,5 +285,9 @@ internal static class DesktopTrackPlayer
         }
     }
 
-    private sealed record PlaybackControls(Func<int> Toggle, Func<int> GetState);
+    private sealed record PlaybackControls(
+        Func<int> Toggle,
+        Func<int> GetState,
+        Func<NativePlaybackProgress?> GetProgress,
+        Action<TimeSpan> Seek);
 }

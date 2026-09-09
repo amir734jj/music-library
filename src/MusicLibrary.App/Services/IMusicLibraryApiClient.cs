@@ -44,6 +44,9 @@ public interface IMusicLibraryApiClient
         Guid stationId,
         CancellationToken cancellationToken = default);
 
+    [Post("/api/stations/{stationId}/capture")]
+    Task<IApiResponse> EnableStationCaptureAsync(Guid stationId, CancellationToken cancellationToken = default);
+
     [Get("/api/playback-activity")]
     Task<ApiResponse<List<UserPlaybackActivitySummary>>> GetPlaybackActivitiesAsync(CancellationToken cancellationToken = default);
 

@@ -141,13 +141,15 @@
         </Border>
       </Grid>
       <Border Name="PlaybackDock" Grid.Row="2" Grid.ColumnSpan="3" Classes="panel" IsVisible="False">
-        <Grid ColumnDefinitions="Auto,12,*,12,Auto">
+        <Grid ColumnDefinitions="Auto,12,*,12,Auto" RowDefinitions="Auto,6,Auto">
           <PathIcon Name="PlaybackDockIcon" Data="M8,5.14V19.14L19,12.14L8,5.14Z" Width="20" Height="20" VerticalAlignment="Center" />
           <StackPanel Grid.Column="2" Spacing="2" VerticalAlignment="Center">
             <TextBlock Name="PlaybackDockTitle" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
             <TextBlock Name="PlaybackDockSubtitle" FontSize="12" Opacity="0.7" TextTrimming="CharacterEllipsis" />
           </StackPanel>
           <Button Name="PlaybackDockButton" Grid.Column="4" Width="40" Height="36" Click="PlaybackDockButton_Click" />
+          <Slider Name="PlaybackTimeline" Grid.Row="2" Grid.Column="2" Minimum="0" Maximum="1" IsVisible="False" PointerPressed="PlaybackTimeline_PointerPressed" PointerReleased="PlaybackTimeline_PointerReleased" />
+          <TextBlock Name="PlaybackTimelineText" Grid.Row="2" Grid.Column="4" IsVisible="False" FontSize="12" Opacity="0.7" VerticalAlignment="Center" />
         </Grid>
       </Border>
     </Grid>

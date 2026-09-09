@@ -200,6 +200,14 @@ public static class MusicLibraryApi
         return GetContent(response);
     }
 
+    public static async Task EnableStationCaptureAsync(
+        Guid stationId,
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await Client.EnableStationCaptureAsync(stationId, cancellationToken);
+        EnsureSuccess(response);
+    }
+
     public static async Task<IReadOnlyCollection<UserPlaybackActivitySummary>> GetPlaybackActivitiesAsync(
         CancellationToken cancellationToken = default)
     {

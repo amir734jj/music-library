@@ -306,6 +306,20 @@ public sealed class LibraryController(
     }
 
     [AllowAnonymous]
+    [HttpPost("stations/{stationId:guid}/capture")]
+    public async Task<IActionResult> EnableStationCapture(Guid stationId)
+    {
+        var stations = repository.For<Station>();
+        var station = await stations.Get<Guid>(stationId);
+        if (station is null) return NotFound();
+        if (!station.IsProbeEnabled)
+        {
+            await stations.Update<Guid>(stationId, tracked => tracked.IsProbeEnabled = true);
+        }
+        return NoContent();
+    }
+
+    [AllowAnonymous]
     [HttpGet("trending/{cachedTrackId:guid}/download")]
     public async Task<IActionResult> DownloadTrendingTrack(Guid cachedTrackId, CancellationToken cancellationToken)
     {

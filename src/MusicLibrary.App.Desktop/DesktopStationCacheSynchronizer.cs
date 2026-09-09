@@ -31,12 +31,35 @@ internal sealed class DesktopStationCacheSynchronizer : IDisposable
 
     public async Task SubscribeAsync(LocalStationSubscription subscription)
     {
+        await MusicLibraryApi.EnableStationCaptureAsync(subscription.StationId, _cancellation.Token);
         lock (_gate)
         {
             _subscriptions[subscription.StationId] = subscription;
-            DesktopSettingsStorage.SaveStationSubscriptions(_subscriptions.Values);
         }
-        await SynchronizeAsync(_cancellation.Token);
+        try
+        {
+            await _syncGate.WaitAsync(_cancellation.Token);
+            try
+            {
+                await SynchronizeSubscriptionAsync(subscription, _cancellation.Token);
+            }
+            finally
+            {
+                _syncGate.Release();
+            }
+            lock (_gate)
+            {
+                DesktopSettingsStorage.SaveStationSubscriptions(_subscriptions.Values);
+            }
+        }
+        catch
+        {
+            lock (_gate)
+            {
+                _subscriptions.Remove(subscription.StationId);
+            }
+            throw;
+        }
     }
 
     public Task UnsubscribeAsync(Guid stationId)
@@ -121,10 +144,11 @@ internal sealed class DesktopStationCacheSynchronizer : IDisposable
         var stationDirectory = Path.Combine(
             cacheDirectory,
             SanitizeFileName(subscription.StationName, subscription.StationId.ToString("N")));
-        Directory.CreateDirectory(stationDirectory);
-        var existingNames = Directory.EnumerateFiles(stationDirectory)
+        var existingNames = Directory.Exists(stationDirectory)
+            ? Directory.EnumerateFiles(stationDirectory)
             .Select(Path.GetFileName)
-            .ToArray();
+            .ToArray()
+            : [];
         var cachedTracks = await MusicLibraryApi.GetStationCachedTracksAsync(subscription.StationId, cancellationToken);
         foreach (var track in cachedTracks)
         {
@@ -138,6 +162,7 @@ internal sealed class DesktopStationCacheSynchronizer : IDisposable
             var extension = Path.GetExtension(download.FileName);
             if (string.IsNullOrWhiteSpace(extension)) extension = ".mp3";
             var fileName = $"{SanitizeFileName(displayName, "radio-track")} [{idToken}]{extension}";
+            Directory.CreateDirectory(stationDirectory);
             await NativeStreamDownloader.SaveAsync(download.Content, fileName, stationDirectory, cancellationToken);
         }
     }
