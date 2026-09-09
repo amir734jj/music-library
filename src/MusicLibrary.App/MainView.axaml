@@ -22,6 +22,7 @@
             <Button Name="StationsNavigationButton" Classes="nav" Content="Stations" HorizontalContentAlignment="Left" Click="Stations_Click" Margin="0,0,8,8" />
             <Button Name="FollowingNavigationButton" Classes="nav" Content="Following" HorizontalContentAlignment="Left" Click="Following_Click" Margin="0,0,8,8" />
             <Button Name="TrendingNavigationButton" Classes="nav" Content="Trending" HorizontalContentAlignment="Left" Click="Trending_Click" Margin="0,0,8,8" />
+            <Button Name="RippingNavigationButton" Classes="nav" Content="Ripping" HorizontalContentAlignment="Left" Click="Ripping_Click" IsVisible="{Binding ShowRippingMode, ElementName=Root}" Margin="0,0,8,8" />
             <Button Name="OfflineNavigationButton" Classes="nav" Content="Cached locally" HorizontalContentAlignment="Left" Click="Offline_Click" IsVisible="{Binding ShowOfflineMode, ElementName=Root}" Margin="0,0,8,8" />
             <Button Name="UserBoardNavigationButton" Classes="nav" Content="User board" HorizontalContentAlignment="Left" Click="UserBoard_Click" Margin="0,0,8,8" />
             <Button Name="AboutNavigationButton" Classes="nav" Content="About" HorizontalContentAlignment="Left" Click="About_Click" Margin="0,0,8,8" />

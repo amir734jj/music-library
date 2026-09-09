@@ -6,7 +6,9 @@ namespace MusicLibrary.App.Desktop;
 internal sealed class DesktopStationCacheSynchronizer : IDisposable
 {
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan WarningInterval = TimeSpan.FromMinutes(5);
     private readonly Dictionary<Guid, LocalStationSubscription> _subscriptions;
+    private readonly Dictionary<Guid, DateTimeOffset> _nextWarningAt = [];
     private readonly CancellationTokenSource _cancellation = new();
     private readonly SemaphoreSlim _syncGate = new(1, 1);
     private readonly object _gate = new();
@@ -68,6 +70,7 @@ internal sealed class DesktopStationCacheSynchronizer : IDisposable
         {
             if (_subscriptions.Remove(stationId))
             {
+                _nextWarningAt.Remove(stationId);
                 DesktopSettingsStorage.SaveStationSubscriptions(_subscriptions.Values);
             }
         }
@@ -113,6 +116,10 @@ internal sealed class DesktopStationCacheSynchronizer : IDisposable
                 try
                 {
                     await SynchronizeSubscriptionAsync(subscription, cancellationToken);
+                    lock (_gate)
+                    {
+                        _nextWarningAt.Remove(subscription.StationId);
+                    }
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
@@ -120,7 +127,21 @@ internal sealed class DesktopStationCacheSynchronizer : IDisposable
                 }
                 catch (Exception exception)
                 {
-                    Log.Warning(exception, "Could not synchronize cached tracks for {StationName}", subscription.StationName);
+                    var shouldLog = false;
+                    lock (_gate)
+                    {
+                        var now = DateTimeOffset.UtcNow;
+                        if (!_nextWarningAt.TryGetValue(subscription.StationId, out var nextWarningAt)
+                            || nextWarningAt <= now)
+                        {
+                            _nextWarningAt[subscription.StationId] = now.Add(WarningInterval);
+                            shouldLog = true;
+                        }
+                    }
+                    if (shouldLog)
+                    {
+                        Log.Warning(exception, "Could not synchronize cached tracks for {StationName}", subscription.StationName);
+                    }
                 }
             }
         }

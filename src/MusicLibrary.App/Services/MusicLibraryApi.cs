@@ -196,6 +196,21 @@ public static class MusicLibraryApi
         CancellationToken cancellationToken = default)
     {
         using var response = await Client.GetStationCachedTracksAsync(stationId, cancellationToken);
+        if (response.StatusCode is System.Net.HttpStatusCode.NotFound or System.Net.HttpStatusCode.MethodNotAllowed)
+        {
+            var trends = await GetTrendingAsync(cancellationToken: cancellationToken);
+            return
+            [
+                .. trends
+                    .Where(trend => trend.LastStationId == stationId && trend.CachedTrackId is not null)
+                    .Select(trend => new StationCachedTrackSummary(
+                        trend.CachedTrackId!.Value,
+                        trend.Artist,
+                        trend.Title,
+                        trend.LastObservedAt,
+                        trend.CachedUntil ?? DateTimeOffset.UtcNow))
+            ];
+        }
         EnsureSuccess(response);
         return GetContent(response);
     }
@@ -205,6 +220,10 @@ public static class MusicLibraryApi
         CancellationToken cancellationToken = default)
     {
         using var response = await Client.EnableStationCaptureAsync(stationId, cancellationToken);
+        if (response.StatusCode is System.Net.HttpStatusCode.NotFound or System.Net.HttpStatusCode.MethodNotAllowed)
+        {
+            return;
+        }
         EnsureSuccess(response);
     }
 

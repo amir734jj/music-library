@@ -18,6 +18,7 @@ public sealed partial class MainView : UserControl
         Stations,
         Following,
         Trending,
+        Ripping,
         Offline,
         UserBoard,
         About
@@ -30,6 +31,7 @@ public sealed partial class MainView : UserControl
     private readonly SemaphoreSlim _probeStatusLoadGate = new(1, 1);
     private readonly HashSet<string> _subscribedArtists = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, List<Button>> _subscriptionButtons = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<Guid, List<Button>> _stationRipButtons = [];
     private CancellationTokenSource? _librarySearchCancellation;
     private CancellationTokenSource? _libraryPollingCancellation;
     private CancellationTokenSource? _playbackActivityHeartbeatCancellation;
@@ -67,6 +69,7 @@ public sealed partial class MainView : UserControl
     private bool _playbackActivityIsLiveStation;
     private bool _isPlaybackActivityActive;
     private bool _subscriptionsLoaded;
+    private bool _stationSubscriptionsLoaded;
     private bool _isGuest;
     private bool _isSeekingPlayback;
     private bool? _isCompactLayout;
@@ -77,6 +80,7 @@ public sealed partial class MainView : UserControl
         get { return !IsBrowserHost; }
     }
     public bool ShowOfflineMode => NativeRadioActions.ListOfflineTracksAsync is not null;
+    public bool ShowRippingMode => NativeRadioActions.ListStationSubscriptionsAsync is not null;
 
     public MainView() : this(showAdministration: false)
     {
@@ -91,6 +95,7 @@ public sealed partial class MainView : UserControl
         AuthenticationView.OfflineRequested += AuthenticationView_OfflineRequested;
         MusicLibraryApi.SessionInvalidated += MusicLibraryApi_SessionInvalidated;
         OfflineNavigationButton.IsVisible = ShowOfflineMode;
+        RippingNavigationButton.IsVisible = ShowRippingMode;
         AuthenticationView.IsVisible = true;
         ApplicationView.IsVisible = false;
         SignOutButton.IsVisible = true;
@@ -349,6 +354,13 @@ public sealed partial class MainView : UserControl
         _ = LoadCurrentLibraryViewAsync();
     }
 
+    private void Ripping_Click(object? sender, RoutedEventArgs eventArgs)
+    {
+        SetLibraryMode(LibraryMode.Ripping);
+        ShowLibrary();
+        _ = LoadCurrentLibraryViewAsync();
+    }
+
     private async void ChangeOfflineDirectory_Click(object? sender, RoutedEventArgs eventArgs)
     {
         if (NativeRadioActions.SetOfflineDirectoryAsync is null) return;
@@ -419,6 +431,7 @@ public sealed partial class MainView : UserControl
         StationsNavigationButton.Classes.Set("active", mode == LibraryMode.Stations);
         FollowingNavigationButton.Classes.Set("active", mode == LibraryMode.Following);
         TrendingNavigationButton.Classes.Set("active", mode == LibraryMode.Trending);
+        RippingNavigationButton.Classes.Set("active", mode == LibraryMode.Ripping);
         OfflineNavigationButton.Classes.Set("active", mode == LibraryMode.Offline);
         UserBoardNavigationButton.Classes.Set("active", mode == LibraryMode.UserBoard);
         AboutNavigationButton.Classes.Set("active", mode == LibraryMode.About);
@@ -436,6 +449,7 @@ public sealed partial class MainView : UserControl
             LibraryMode.Following => "Following",
             LibraryMode.Stations => "Stations",
             LibraryMode.Trending => "Trending Now",
+            LibraryMode.Ripping => "Ripping",
             LibraryMode.Offline => "Cached locally",
             LibraryMode.UserBoard => "User board",
             LibraryMode.About => "About",
@@ -446,6 +460,7 @@ public sealed partial class MainView : UserControl
             LibraryMode.Following => "Search followed artists",
             LibraryMode.Stations => "Search station, genre, or URL",
             LibraryMode.Trending => "Search trending artist or track",
+            LibraryMode.Ripping => "Search stations being ripped",
             LibraryMode.Offline => "Search downloaded recordings",
             LibraryMode.UserBoard => "Search listeners or playback",
             LibraryMode.About => string.Empty,
@@ -472,7 +487,7 @@ public sealed partial class MainView : UserControl
         _probeStatusPollingCancellation?.Cancel();
         AdministrationView.IsVisible = false;
         LibraryView.IsVisible = true;
-        if (_libraryMode is LibraryMode.About or LibraryMode.Stations or LibraryMode.Offline)
+        if (_libraryMode is LibraryMode.About or LibraryMode.Stations or LibraryMode.Ripping or LibraryMode.Offline)
         {
             _libraryPollingCancellation?.Cancel();
         }
@@ -531,6 +546,7 @@ public sealed partial class MainView : UserControl
             LibraryMode.Following => LoadFollowingAsync(query, cancellationToken, showLoading),
             LibraryMode.Stations => LoadStationsAsync(query, cancellationToken, showLoading),
             LibraryMode.Trending => LoadTrendingAsync(query, cancellationToken, showLoading),
+            LibraryMode.Ripping => LoadRippingAsync(query),
             LibraryMode.Offline => LoadOfflineTracksAsync(query),
             LibraryMode.UserBoard => LoadPlaybackActivitiesAsync(query, cancellationToken, showLoading),
             LibraryMode.About => Task.CompletedTask,
@@ -728,13 +744,9 @@ public sealed partial class MainView : UserControl
                 NowPlayingList.ItemsSource = null;
             }
             var stations = await MusicLibraryApi.GetStationsAsync(query, cancellationToken);
-            if (NativeRadioActions.ListStationSubscriptionsAsync is not null)
-            {
-                var subscriptions = await NativeRadioActions.ListStationSubscriptionsAsync();
-                _subscribedStations.Clear();
-                _subscribedStations.UnionWith(subscriptions.Select(subscription => subscription.StationId));
-            }
+            await EnsureStationSubscriptionsLoadedAsync();
             if (_libraryMode != LibraryMode.Stations) return;
+            _stationRipButtons.Clear();
             NowPlayingList.ItemsSource = CreateStationGroups(stations);
             NowPlayingStatus.Text = stations.Count switch
             {
@@ -832,36 +844,49 @@ public sealed partial class MainView : UserControl
         if (NativeRadioActions.SubscribeToStationAsync is not null
             && NativeRadioActions.UnsubscribeFromStationAsync is not null)
         {
-            var ripButton = new Button { MinWidth = 74, Height = 32 };
-            SetStationRipButtonState(ripButton, _subscribedStations.Contains(station.Id), station.Name);
-            ripButton.Click += async (_, _) => await ToggleStationRipAsync(station, ripButton);
-            actions.Children.Add(ripButton);
+            actions.Children.Add(CreateStationRipButton(station.Id, station.Name));
         }
         Grid.SetColumn(actions, 2);
         row.Children.Add(actions);
         return row;
     }
 
-    private async Task ToggleStationRipAsync(StationSummary station, Button button)
+    private Button CreateStationRipButton(Guid stationId, string stationName)
+    {
+        var button = new Button { MinWidth = 74, Height = 32 };
+        SetStationRipButtonState(button, _subscribedStations.Contains(stationId), stationName);
+        if (!_stationRipButtons.TryGetValue(stationId, out var buttons))
+        {
+            buttons = [];
+            _stationRipButtons.Add(stationId, buttons);
+        }
+        buttons.Add(button);
+        button.Click += async (_, _) => await ToggleStationRipAsync(stationId, stationName, button);
+        return button;
+    }
+
+    private async Task ToggleStationRipAsync(Guid stationId, string stationName, Button button)
     {
         button.IsEnabled = false;
         try
         {
-            if (_subscribedStations.Contains(station.Id))
+            if (_subscribedStations.Contains(stationId))
             {
-                await NativeRadioActions.UnsubscribeFromStationAsync!(station.Id);
-                _subscribedStations.Remove(station.Id);
-                NowPlayingStatus.Text = $"Stopped ripping {station.Name}.";
+                await NativeRadioActions.UnsubscribeFromStationAsync!(stationId);
+                _subscribedStations.Remove(stationId);
+                NowPlayingStatus.Text = $"Stopped ripping {stationName}.";
             }
             else
             {
                 await NativeRadioActions.SubscribeToStationAsync!(new LocalStationSubscription(
-                    station.Id,
-                    station.Name));
-                _subscribedStations.Add(station.Id);
-                NowPlayingStatus.Text = $"Ripping {station.Name}. New songs will be cached when the API finishes recording them.";
+                    stationId,
+                    stationName));
+                _subscribedStations.Add(stationId);
+                NowPlayingStatus.Text = $"Ripping {stationName}. New songs will be cached when the API finishes recording them.";
             }
-            SetStationRipButtonState(button, _subscribedStations.Contains(station.Id), station.Name);
+            _stationSubscriptionsLoaded = true;
+            SetStationRipButtons(stationId, stationName);
+            if (_libraryMode == LibraryMode.Ripping) await LoadRippingAsync(LibrarySearchInput.Text);
         }
         catch (Exception exception)
         {
@@ -878,8 +903,85 @@ public sealed partial class MainView : UserControl
         button.Content = isRipping ? "Ripping" : "Rip";
         button.Classes.Set("active", isRipping);
         ToolTip.SetTip(button, isRipping
-            ? $"Stop downloading API recordings from {stationName}"
-            : $"Download new API recordings from {stationName}");
+            ? $"Stop ripping {stationName}. Ripping automatically downloads complete-song recordings produced by the API."
+            : $"Rip {stationName}. Automatically download complete-song recordings produced by the API.");
+    }
+
+    private void SetStationRipButtons(Guid stationId, string stationName)
+    {
+        if (!_stationRipButtons.TryGetValue(stationId, out var buttons)) return;
+        foreach (var button in buttons)
+        {
+            SetStationRipButtonState(button, _subscribedStations.Contains(stationId), stationName);
+        }
+    }
+
+    private async Task EnsureStationSubscriptionsLoadedAsync()
+    {
+        if (_stationSubscriptionsLoaded || NativeRadioActions.ListStationSubscriptionsAsync is null) return;
+        var subscriptions = await NativeRadioActions.ListStationSubscriptionsAsync();
+        _subscribedStations.Clear();
+        _subscribedStations.UnionWith(subscriptions.Select(subscription => subscription.StationId));
+        _stationSubscriptionsLoaded = true;
+    }
+
+    private async Task LoadRippingAsync(string? query = null)
+    {
+        if (NativeRadioActions.ListStationSubscriptionsAsync is null) return;
+        NowPlayingStatus.Text = "Loading stations being ripped...";
+        try
+        {
+            var allSubscriptions = await NativeRadioActions.ListStationSubscriptionsAsync();
+            _subscribedStations.Clear();
+            _subscribedStations.UnionWith(allSubscriptions.Select(subscription => subscription.StationId));
+            _stationSubscriptionsLoaded = true;
+            var subscriptions = allSubscriptions;
+            if (!string.IsNullOrWhiteSpace(query))
+            {
+                subscriptions = subscriptions
+                    .Where(subscription => subscription.StationName.Contains(query.Trim(), StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+            }
+            if (_libraryMode != LibraryMode.Ripping) return;
+            _stationRipButtons.Clear();
+            NowPlayingList.ItemsSource = subscriptions.Select(CreateRippingRow).ToList();
+            NowPlayingStatus.Text = subscriptions.Count == 0
+                ? (string.IsNullOrWhiteSpace(query)
+                    ? "No stations are currently being ripped."
+                    : "No ripped stations match your search.")
+                : $"Ripping {subscriptions.Count} station(s). Complete songs are downloaded when the API recording is ready.";
+        }
+        catch (Exception exception)
+        {
+            NowPlayingStatus.Text = exception.Message;
+        }
+    }
+
+    private Control CreateRippingRow(LocalStationSubscription subscription)
+    {
+        var row = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("*,12,Auto"),
+            Margin = new Avalonia.Thickness(0, 0, 0, 10)
+        };
+        var details = new StackPanel { Spacing = 2 };
+        details.Children.Add(new TextBlock
+        {
+            Text = subscription.StationName,
+            FontWeight = FontWeight.SemiBold,
+            TextWrapping = TextWrapping.Wrap
+        });
+        details.Children.Add(new TextBlock
+        {
+            Text = "Waiting for complete-song recordings from the API",
+            Opacity = 0.65,
+            TextWrapping = TextWrapping.Wrap
+        });
+        row.Children.Add(details);
+        var stopButton = CreateStationRipButton(subscription.StationId, subscription.StationName);
+        Grid.SetColumn(stopButton, 2);
+        row.Children.Add(stopButton);
+        return row;
     }
 
     private async Task LoadPlaybackActivitiesAsync(
@@ -987,6 +1089,7 @@ public sealed partial class MainView : UserControl
             {
                 if (MusicLibraryApi.IsAuthenticated) await EnsureSubscriptionsLoadedAsync(cancellationToken);
                 var observations = await MusicLibraryApi.GetNowPlayingAsync(query, cancellationToken);
+                await EnsureStationSubscriptionsLoadedAsync();
                 if (_libraryMode != LibraryMode.NowPlaying) return;
                 var hasChanges = !_nowPlayingSnapshot.SequenceEqual(observations);
                 var canReplaceRows = showLoading || NowPlayingScroll.Offset.Y <= 1;
@@ -994,6 +1097,7 @@ public sealed partial class MainView : UserControl
                 {
                     _nowPlayingSnapshot = [.. observations];
                     _subscriptionButtons.Clear();
+                    _stationRipButtons.Clear();
                     NowPlayingList.ItemsSource = observations.Select(CreateNowPlayingRow).ToList();
                 }
                 NowPlayingStatus.Text = observations.Count == 0
@@ -1059,6 +1163,12 @@ public sealed partial class MainView : UserControl
             && NativeRadioActions.ListenAsync is not null;
         if (hasDirectStream || NativeRadioActions.ListenToStationAsync is not null)
         {
+            var actions = new StackPanel
+            {
+                Orientation = Avalonia.Layout.Orientation.Horizontal,
+                Spacing = 4,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+            };
             var listenButton = new Button
             {
                 Content = CreateActionIcon("mdi-radio-tower"),
@@ -1075,9 +1185,15 @@ public sealed partial class MainView : UserControl
                 streamUri,
                 observation.StationName,
                 listenButton);
-            Grid.SetColumn(listenButton, 3);
-            Grid.SetRow(listenButton, 1);
-            row.Children.Add(listenButton);
+            actions.Children.Add(listenButton);
+            if (NativeRadioActions.SubscribeToStationAsync is not null
+                && NativeRadioActions.UnsubscribeFromStationAsync is not null)
+            {
+                actions.Children.Add(CreateStationRipButton(observation.StationId, observation.StationName));
+            }
+            Grid.SetColumn(actions, 3);
+            Grid.SetRow(actions, 1);
+            row.Children.Add(actions);
         }
 
         if (MusicLibraryApi.IsAuthenticated && !string.IsNullOrWhiteSpace(observation.Artist))
@@ -1344,6 +1460,7 @@ public sealed partial class MainView : UserControl
                 var trends = (await MusicLibraryApi.GetTrendingAsync(query, cancellationToken))
                     .Where(trend => trend.CachedTrackId is not null)
                     .ToList();
+                await EnsureStationSubscriptionsLoadedAsync();
                 if (_libraryMode != LibraryMode.Trending) return;
                 var hasChanges = !_trendingSnapshot.SequenceEqual(trends);
                 var currentTrackIds = _trendingSnapshot.Select(trend => trend.CachedTrackId).ToHashSet();
@@ -1353,6 +1470,7 @@ public sealed partial class MainView : UserControl
                 if ((showLoading || hasChanges) && canReplaceRows)
                 {
                     _trendingSnapshot = [.. trends];
+                    _stationRipButtons.Clear();
                     NowPlayingList.ItemsSource = trends.Select((trend, index) => CreateTrendingRow(trend, index + 1)).ToList();
                 }
                 if (_trendingBatchDownloadCancellation is null && _trendingPlaybackCancellation is null)
@@ -1485,6 +1603,12 @@ public sealed partial class MainView : UserControl
         }
         actions.Children.Add(playButton);
         if (listenButton is not null) actions.Children.Add(listenButton);
+        if (listenButton is not null
+            && NativeRadioActions.SubscribeToStationAsync is not null
+            && NativeRadioActions.UnsubscribeFromStationAsync is not null)
+        {
+            actions.Children.Add(CreateStationRipButton(trend.LastStationId, trend.LastStationName));
+        }
         actions.Children.Add(downloadButton);
         Grid.SetColumn(actions, 4);
         Grid.SetRowSpan(actions, 2);
@@ -2199,6 +2323,7 @@ public sealed partial class MainView : UserControl
         NowPlayingNavigationButton.Classes.Set("active", false);
         FollowingNavigationButton.Classes.Set("active", false);
         TrendingNavigationButton.Classes.Set("active", false);
+        RippingNavigationButton.Classes.Set("active", false);
         UserBoardNavigationButton.Classes.Set("active", false);
         AboutNavigationButton.Classes.Set("active", false);
         LibraryView.IsVisible = false;
