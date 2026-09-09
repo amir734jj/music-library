@@ -39,6 +39,11 @@ public interface IMusicLibraryApiClient
     [Get("/api/trending/{cachedTrackId}/download")]
     Task<HttpResponseMessage> DownloadTrendingTrackAsync(Guid cachedTrackId, CancellationToken cancellationToken = default);
 
+    [Get("/api/stations/{stationId}/cached-tracks")]
+    Task<ApiResponse<List<StationCachedTrackSummary>>> GetStationCachedTracksAsync(
+        Guid stationId,
+        CancellationToken cancellationToken = default);
+
     [Get("/api/playback-activity")]
     Task<ApiResponse<List<UserPlaybackActivitySummary>>> GetPlaybackActivitiesAsync(CancellationToken cancellationToken = default);
 

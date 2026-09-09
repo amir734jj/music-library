@@ -1,6 +1,13 @@
 namespace MusicLibrary.App.Services;
 
-public sealed record OfflineTrack(string Key, string Name, long SizeBytes, DateTimeOffset SavedAt);
+public sealed record OfflineTrack(
+    string Key,
+    string Name,
+    long SizeBytes,
+    DateTimeOffset SavedAt,
+    string? StationName = null);
+
+public sealed record LocalStationSubscription(Guid StationId, string StationName);
 
 public static class NativeRadioActions
 {
@@ -16,5 +23,9 @@ public static class NativeRadioActions
     public static Func<byte[], string, string, Task<string>>? SaveFileAsync { get; set; }
     public static Func<Task<IReadOnlyList<OfflineTrack>>>? ListOfflineTracksAsync { get; set; }
     public static Func<string, Task>? PlayOfflineTrackAsync { get; set; }
+    public static Func<string, CancellationToken, Task>? PlayOfflineTrackToCompletionAsync { get; set; }
     public static Func<string, Task>? DeleteOfflineTrackAsync { get; set; }
+    public static Func<Task<IReadOnlyList<LocalStationSubscription>>>? ListStationSubscriptionsAsync { get; set; }
+    public static Func<LocalStationSubscription, Task>? SubscribeToStationAsync { get; set; }
+    public static Func<Guid, Task>? UnsubscribeFromStationAsync { get; set; }
 }

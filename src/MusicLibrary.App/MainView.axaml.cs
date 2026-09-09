@@ -34,6 +34,7 @@ public sealed partial class MainView : UserControl
     private CancellationTokenSource? _playbackActivityHeartbeatCancellation;
     private CancellationTokenSource? _trendingBatchDownloadCancellation;
     private CancellationTokenSource? _trendingPlaybackCancellation;
+    private CancellationTokenSource? _offlinePlaybackCancellation;
     private CancellationTokenSource? _probeSearchCancellation;
     private CancellationTokenSource? _probeStatusPollingCancellation;
     private CancellationTokenSource? _sessionExpiryCancellation;
@@ -49,7 +50,9 @@ public sealed partial class MainView : UserControl
     private IReadOnlyCollection<NowPlayingSummary> _nowPlayingSnapshot = [];
     private IReadOnlyCollection<ArtistSubscriptionSummary> _followingSnapshot = [];
     private IReadOnlyCollection<TrendingSummary> _trendingSnapshot = [];
+    private IReadOnlyList<OfflineTrack> _offlineSnapshot = [];
     private IReadOnlyCollection<UserPlaybackActivitySummary> _playbackActivitySnapshot = [];
+    private readonly HashSet<Guid> _subscribedStations = [];
     private Guid? _playingStationId;
     private Button? _playingStationButton;
     private Guid? _playingCachedTrackId;
@@ -121,6 +124,7 @@ public sealed partial class MainView : UserControl
         _playbackActivityHeartbeatCancellation?.Cancel();
         _trendingBatchDownloadCancellation?.Cancel();
         _trendingPlaybackCancellation?.Cancel();
+        _offlinePlaybackCancellation?.Cancel();
         _probeSearchCancellation?.Cancel();
         _probeStatusPollingCancellation?.Cancel();
         _sessionExpiryCancellation?.Cancel();
@@ -282,6 +286,7 @@ public sealed partial class MainView : UserControl
         _libraryPollingCancellation?.Cancel();
         _trendingBatchDownloadCancellation?.Cancel();
         _trendingPlaybackCancellation?.Cancel();
+        _offlinePlaybackCancellation?.Cancel();
         _probeSearchCancellation?.Cancel();
         _probeStatusPollingCancellation?.Cancel();
         _sessionExpiryCancellation?.Cancel();
@@ -400,6 +405,7 @@ public sealed partial class MainView : UserControl
         _librarySearchCancellation?.Cancel();
         _libraryPollingCancellation?.Cancel();
         _trendingPlaybackCancellation?.Cancel();
+        _offlinePlaybackCancellation?.Cancel();
         _libraryMode = mode;
         NowPlayingNavigationButton.Classes.Set("active", mode == LibraryMode.NowPlaying);
         StationsNavigationButton.Classes.Set("active", mode == LibraryMode.Stations);
@@ -412,6 +418,8 @@ public sealed partial class MainView : UserControl
         NowPlayingStatus.IsVisible = mode != LibraryMode.About;
         PlayAllTrendingButton.IsVisible = mode == LibraryMode.Trending
             && NativeRadioActions.PlayFileToCompletionAsync is not null;
+        PlayAllOfflineButton.IsVisible = mode == LibraryMode.Offline
+            && NativeRadioActions.PlayOfflineTrackToCompletionAsync is not null;
         DownloadAllTrendingButton.IsVisible = mode == LibraryMode.Trending && ShowNativeMedia;
         ChangeOfflineDirectoryButton.IsVisible = mode == LibraryMode.Offline
             && NativeRadioActions.SetOfflineDirectoryAsync is not null;
@@ -531,10 +539,12 @@ public sealed partial class MainView : UserControl
             var tracks = await NativeRadioActions.ListOfflineTracksAsync();
             if (!string.IsNullOrWhiteSpace(query))
             {
-                tracks = tracks.Where(track => track.Name.Contains(query, StringComparison.OrdinalIgnoreCase)).ToList();
+                tracks = tracks.Where(track => track.Name.Contains(query, StringComparison.OrdinalIgnoreCase)
+                    || (track.StationName?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false)).ToList();
             }
             if (_libraryMode != LibraryMode.Offline) return;
-            NowPlayingList.ItemsSource = tracks.Select(CreateOfflineTrackRow).ToList();
+            _offlineSnapshot = tracks;
+            NowPlayingList.ItemsSource = CreateOfflineTrackGroups(tracks);
             var locationText = string.IsNullOrWhiteSpace(NativeRadioActions.OfflineDirectoryPath)
                 ? string.Empty
                 : $" Stored at: {NativeRadioActions.OfflineDirectoryPath}";
@@ -546,6 +556,26 @@ public sealed partial class MainView : UserControl
         {
             NowPlayingStatus.Text = exception.Message;
         }
+    }
+
+    private IReadOnlyList<Control> CreateOfflineTrackGroups(IEnumerable<OfflineTrack> tracks)
+    {
+        var controls = new List<Control>();
+        foreach (var group in tracks
+                     .GroupBy(track => track.StationName)
+                     .OrderBy(group => group.Key is null ? 0 : 1)
+                     .ThenBy(group => group.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            controls.Add(new TextBlock
+            {
+                Text = group.Key is null ? "Trending downloads" : $"Subscribed station: {group.Key}",
+                FontSize = 16,
+                FontWeight = FontWeight.SemiBold,
+                Margin = new Avalonia.Thickness(0, controls.Count == 0 ? 0 : 12, 0, 10)
+            });
+            controls.AddRange(group.Select(CreateOfflineTrackRow));
+        }
+        return controls;
     }
 
     private Control CreateOfflineTrackRow(OfflineTrack track)
@@ -690,6 +720,12 @@ public sealed partial class MainView : UserControl
                 NowPlayingList.ItemsSource = null;
             }
             var stations = await MusicLibraryApi.GetStationsAsync(query, cancellationToken);
+            if (NativeRadioActions.ListStationSubscriptionsAsync is not null)
+            {
+                var subscriptions = await NativeRadioActions.ListStationSubscriptionsAsync();
+                _subscribedStations.Clear();
+                _subscribedStations.UnionWith(subscriptions.Select(subscription => subscription.StationId));
+            }
             if (_libraryMode != LibraryMode.Stations) return;
             NowPlayingList.ItemsSource = CreateStationGroups(stations);
             NowPlayingStatus.Text = stations.Count switch
@@ -759,6 +795,12 @@ public sealed partial class MainView : UserControl
         var hasDirectStream = Uri.TryCreate(station.StreamUrl, UriKind.Absolute, out var streamUri)
             && (streamUri.Scheme == Uri.UriSchemeHttp || streamUri.Scheme == Uri.UriSchemeHttps)
             && NativeRadioActions.ListenAsync is not null;
+        var actions = new StackPanel
+        {
+            Orientation = Avalonia.Layout.Orientation.Horizontal,
+            Spacing = 4,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+        };
         if (hasDirectStream || NativeRadioActions.ListenToStationAsync is not null)
         {
             var listenButton = new Button
@@ -777,10 +819,58 @@ public sealed partial class MainView : UserControl
                 streamUri,
                 station.Name,
                 listenButton);
-            Grid.SetColumn(listenButton, 2);
-            row.Children.Add(listenButton);
+            actions.Children.Add(listenButton);
         }
+        if (NativeRadioActions.SubscribeToStationAsync is not null
+            && NativeRadioActions.UnsubscribeFromStationAsync is not null)
+        {
+            var watchButton = new Button { MinWidth = 74, Height = 32 };
+            SetStationWatchButtonState(watchButton, _subscribedStations.Contains(station.Id), station.Name);
+            watchButton.Click += async (_, _) => await ToggleStationWatchAsync(station, watchButton);
+            actions.Children.Add(watchButton);
+        }
+        Grid.SetColumn(actions, 2);
+        row.Children.Add(actions);
         return row;
+    }
+
+    private async Task ToggleStationWatchAsync(StationSummary station, Button button)
+    {
+        button.IsEnabled = false;
+        try
+        {
+            if (_subscribedStations.Remove(station.Id))
+            {
+                await NativeRadioActions.UnsubscribeFromStationAsync!(station.Id);
+                NowPlayingStatus.Text = $"Stopped watching {station.Name}.";
+            }
+            else
+            {
+                await NativeRadioActions.SubscribeToStationAsync!(new LocalStationSubscription(
+                    station.Id,
+                    station.Name));
+                _subscribedStations.Add(station.Id);
+                NowPlayingStatus.Text = $"Watching {station.Name}. New songs will be cached automatically.";
+            }
+            SetStationWatchButtonState(button, _subscribedStations.Contains(station.Id), station.Name);
+        }
+        catch (Exception exception)
+        {
+            NowPlayingStatus.Text = exception.Message;
+        }
+        finally
+        {
+            button.IsEnabled = true;
+        }
+    }
+
+    private static void SetStationWatchButtonState(Button button, bool isWatching, string stationName)
+    {
+        button.Content = isWatching ? "Watching" : "Watch";
+        button.Classes.Set("active", isWatching);
+        ToolTip.SetTip(button, isWatching
+            ? $"Stop automatically caching songs from {stationName}"
+            : $"Automatically cache new songs from {stationName}");
     }
 
     private async Task LoadPlaybackActivitiesAsync(
@@ -1487,6 +1577,12 @@ public sealed partial class MainView : UserControl
                 return;
             }
 
+            if (_offlinePlaybackCancellation is not null)
+            {
+                _offlinePlaybackCancellation.Cancel();
+                return;
+            }
+
             if ((_playingCachedTrackId is null && _playingOfflineTrackKey is null)
                 || NativeRadioActions.ToggleFilePlaybackAsync is null) return;
             var playbackState = await NativeRadioActions.ToggleFilePlaybackAsync();
@@ -1830,6 +1926,60 @@ public sealed partial class MainView : UserControl
         if (status is not null && _libraryMode == LibraryMode.Trending && LibraryView.IsVisible)
         {
             NowPlayingStatus.Text = status;
+        }
+    }
+
+    private async void PlayAllOffline_Click(object? sender, RoutedEventArgs eventArgs)
+    {
+        if (_offlinePlaybackCancellation is not null)
+        {
+            _offlinePlaybackCancellation.Cancel();
+            return;
+        }
+        if (NativeRadioActions.PlayOfflineTrackToCompletionAsync is null) return;
+        if (_offlineSnapshot.Count == 0)
+        {
+            NowPlayingStatus.Text = "No cached recordings are ready to play.";
+            return;
+        }
+
+        _trendingPlaybackCancellation?.Cancel();
+        var cancellation = _offlinePlaybackCancellation = new CancellationTokenSource();
+        PlayAllOfflineButtonText.Text = "Stop";
+        ChangeOfflineDirectoryButton.IsEnabled = false;
+        try
+        {
+            for (var index = 0; index < _offlineSnapshot.Count; index++)
+            {
+                cancellation.Token.ThrowIfCancellationRequested();
+                var track = _offlineSnapshot[index];
+                ClearPlaybackState();
+                ShowPlaybackDock(
+                    track.Name,
+                    $"Cached playlist | Track {index + 1} of {_offlineSnapshot.Count}",
+                    isPlaying: true,
+                    isLiveStation: false);
+                PlaybackDockButton.Content = CreateActionIcon("mdi-stop");
+                ToolTip.SetTip(PlaybackDockButton, "Stop cached playback");
+                NowPlayingStatus.Text = $"Playing cached recording {index + 1} of {_offlineSnapshot.Count}...";
+                await NativeRadioActions.PlayOfflineTrackToCompletionAsync(track.Key, cancellation.Token);
+            }
+            NowPlayingStatus.Text = $"Played {_offlineSnapshot.Count} cached recording(s).";
+        }
+        catch (OperationCanceledException)
+        {
+            if (_libraryMode == LibraryMode.Offline) NowPlayingStatus.Text = "Cached playback stopped.";
+        }
+        finally
+        {
+            if (_offlinePlaybackCancellation == cancellation)
+            {
+                _offlinePlaybackCancellation = null;
+                PlayAllOfflineButtonText.Text = "Play all";
+                ChangeOfflineDirectoryButton.IsEnabled = true;
+                ClearPlaybackState();
+            }
+            cancellation.Dispose();
         }
     }
 

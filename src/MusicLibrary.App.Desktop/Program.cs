@@ -39,10 +39,12 @@ internal static class Program
             AuthenticationSessionStorage.Load = DesktopAuthenticationSessionStorage.Load;
             AuthenticationSessionStorage.Save = DesktopAuthenticationSessionStorage.Save;
             var offlineDirectory = ResolveOfflineDirectory();
+            using var stationCacheSynchronizer = new DesktopStationCacheSynchronizer(offlineDirectory);
             NativeRadioActions.OfflineDirectoryPath = offlineDirectory;
             NativeRadioActions.SetOfflineDirectoryAsync = newDirectory =>
             {
                 offlineDirectory = MoveOfflineDirectory(offlineDirectory, newDirectory);
+                stationCacheSynchronizer.SetCacheDirectory(offlineDirectory);
                 NativeRadioActions.OfflineDirectoryPath = offlineDirectory;
                 DesktopSettingsStorage.SaveOfflineDirectory(offlineDirectory);
                 return Task.CompletedTask;
@@ -73,15 +75,33 @@ internal static class Program
             NativeRadioActions.SaveFileAsync = (content, _, fileName) =>
                 NativeStreamDownloader.SaveAsync(content, fileName, offlineDirectory);
             NativeRadioActions.ListOfflineTracksAsync = () => ListOfflineTracksAsync(offlineDirectory);
+            NativeRadioActions.ListStationSubscriptionsAsync = () =>
+                Task.FromResult<IReadOnlyList<LocalStationSubscription>>(stationCacheSynchronizer.ListSubscriptions());
+            NativeRadioActions.SubscribeToStationAsync = stationCacheSynchronizer.SubscribeAsync;
+            NativeRadioActions.UnsubscribeFromStationAsync = stationCacheSynchronizer.UnsubscribeAsync;
             NativeRadioActions.PlayOfflineTrackAsync = async key =>
             {
                 var path = ResolveOfflineTrackPath(offlineDirectory, key);
                 var content = await File.ReadAllBytesAsync(path);
                 StartNativePlayback(cancellation => DesktopTrackPlayer.PlayToCompletionAsync(content, "audio/mpeg", Path.GetFileName(path), cancellation));
             };
+            NativeRadioActions.PlayOfflineTrackToCompletionAsync = async (key, cancellationToken) =>
+            {
+                var path = ResolveOfflineTrackPath(offlineDirectory, key);
+                var content = await File.ReadAllBytesAsync(path, cancellationToken);
+                await DesktopTrackPlayer.PlayToCompletionAsync(content, "audio/mpeg", Path.GetFileName(path), cancellationToken);
+            };
             NativeRadioActions.DeleteOfflineTrackAsync = key =>
             {
-                File.Delete(ResolveOfflineTrackPath(offlineDirectory, key));
+                var path = ResolveOfflineTrackPath(offlineDirectory, key);
+                File.Delete(path);
+                var parent = Directory.GetParent(path);
+                if (parent is not null
+                    && !string.Equals(parent.FullName, Path.GetFullPath(offlineDirectory), StringComparison.OrdinalIgnoreCase)
+                    && !parent.EnumerateFileSystemInfos().Any())
+                {
+                    parent.Delete();
+                }
                 return Task.CompletedTask;
             };
             BuildAvaloniaApp()
@@ -177,9 +197,10 @@ internal static class Program
 
         if (Directory.Exists(currentDirectory))
         {
-            foreach (var file in Directory.EnumerateFiles(currentDirectory))
+            foreach (var file in Directory.EnumerateFiles(currentDirectory, "*", SearchOption.AllDirectories))
             {
-                var destination = Path.Combine(newDirectory, Path.GetFileName(file));
+                var destination = Path.Combine(newDirectory, Path.GetRelativePath(currentDirectory, file));
+                Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
                 if (!File.Exists(destination)) File.Move(file, destination);
             }
         }
@@ -191,24 +212,44 @@ internal static class Program
     {
         Directory.CreateDirectory(directory);
         IReadOnlyList<OfflineTrack> tracks = new DirectoryInfo(directory)
-            .EnumerateFiles()
+            .EnumerateFiles("*", SearchOption.AllDirectories)
             .Where(file => IsAudioFile(file.Extension))
             .OrderByDescending(file => file.LastWriteTimeUtc)
             .Select(file => new OfflineTrack(
-                file.Name,
-                Path.GetFileNameWithoutExtension(file.Name),
+                Path.GetRelativePath(directory, file.FullName),
+                GetOfflineTrackName(file.Name),
                 file.Length,
-                new DateTimeOffset(file.LastWriteTimeUtc, TimeSpan.Zero)))
+                new DateTimeOffset(file.LastWriteTimeUtc, TimeSpan.Zero),
+                GetStationName(directory, file)))
             .ToList();
         return Task.FromResult(tracks);
     }
 
     private static string ResolveOfflineTrackPath(string directory, string key)
     {
-        if (key != Path.GetFileName(key)) throw new InvalidOperationException("Invalid offline recording.");
-        var path = Path.Combine(directory, key);
+        var root = Path.GetFullPath(directory).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        var path = Path.GetFullPath(Path.Combine(root, key));
+        if (!path.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Invalid offline recording.");
+        }
         if (!File.Exists(path)) throw new FileNotFoundException("The offline recording no longer exists.", key);
         return path;
+    }
+
+    private static string? GetStationName(string directory, FileInfo file)
+    {
+        var relativeDirectory = Path.GetRelativePath(directory, file.DirectoryName!);
+        return relativeDirectory == "." ? null : relativeDirectory.Split(Path.DirectorySeparatorChar)[0];
+    }
+
+    private static string GetOfflineTrackName(string fileName)
+    {
+        var name = Path.GetFileNameWithoutExtension(fileName);
+        var idStart = name.LastIndexOf(" [", StringComparison.Ordinal);
+        return idStart >= 0 && name.Length - idStart == 35 && name.EndsWith(']')
+            ? name[..idStart]
+            : name;
     }
 
     private static bool IsAudioFile(string extension) => extension.Equals(".mp3", StringComparison.OrdinalIgnoreCase)

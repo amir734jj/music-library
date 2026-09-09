@@ -191,6 +191,15 @@ public static class MusicLibraryApi
         return new DownloadedTrack(content, contentType, fileName);
     }
 
+    public static async Task<IReadOnlyCollection<StationCachedTrackSummary>> GetStationCachedTracksAsync(
+        Guid stationId,
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await Client.GetStationCachedTracksAsync(stationId, cancellationToken);
+        EnsureSuccess(response);
+        return GetContent(response);
+    }
+
     public static async Task<IReadOnlyCollection<UserPlaybackActivitySummary>> GetPlaybackActivitiesAsync(
         CancellationToken cancellationToken = default)
     {

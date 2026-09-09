@@ -258,6 +258,54 @@ public sealed class LibraryController(
     }
 
     [AllowAnonymous]
+    [HttpGet("stations/{stationId:guid}/cached-tracks")]
+    public async Task<IReadOnlyCollection<StationCachedTrackSummary>> StationCachedTracks(
+        Guid stationId,
+        CancellationToken cancellationToken)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var config = await configService.GetAsync(cancellationToken);
+        if (!TrackCacheCryptography.TryGetKey(config.TrendingCacheEncryptionKey, out var cacheKey)) return [];
+
+        var cutoff = now.AddHours(-config.TrendingCacheRetentionHours);
+        var observations = await repository.For<PlayObservation>().GetAll(
+            filterExprs: [play => play.StationId == stationId && play.ObservedAt >= cutoff && play.Artist != null],
+            orderBy: Ordering<PlayObservation>.Desc(play => play.ObservedAt),
+            maxResults: 1000);
+        var keyFingerprint = TrackCacheCryptography.GetFingerprint(cacheKey);
+        var cachedTracks = await repository.For<CachedTrack>().GetAll<CachedTrack>(
+            filterExprs: [track => track.ExpiresAt > now && track.KeyFingerprint == keyFingerprint],
+            orderBy: Ordering<CachedTrack>.Desc(track => track.CreatedAt),
+            maxResults: 10000);
+        var cacheByTrack = cachedTracks
+            .Where(track => trackCacheStorage.Exists(track.FilePath))
+            .GroupBy(track => (track.NormalizedArtist, track.NormalizedTitle))
+            .ToDictionary(group => group.Key, group => group.First());
+
+        return
+        [
+            .. observations
+                .Where(play => TrackMetadataValidation.IsMeaningful(play.Artist, play.Title))
+                .GroupBy(play => (
+                    Artist: play.Artist!.Trim().ToUpperInvariant(),
+                    Title: play.Title?.Trim().ToUpperInvariant() ?? string.Empty))
+                .Select(group => (Observation: group.MaxBy(play => play.ObservedAt)!, Key: group.Key))
+                .Where(item => cacheByTrack.ContainsKey(item.Key))
+                .Select(item =>
+                {
+                    var track = cacheByTrack[item.Key];
+                    return new StationCachedTrackSummary(
+                        track.Id,
+                        track.Artist,
+                        track.Title,
+                        item.Observation.ObservedAt,
+                        track.ExpiresAt);
+                })
+                .OrderBy(track => track.ObservedAt)
+        ];
+    }
+
+    [AllowAnonymous]
     [HttpGet("trending/{cachedTrackId:guid}/download")]
     public async Task<IActionResult> DownloadTrendingTrack(Guid cachedTrackId, CancellationToken cancellationToken)
     {

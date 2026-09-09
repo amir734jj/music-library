@@ -42,6 +42,12 @@
                   <TextBlock Name="PlayAllTrendingButtonText" Text="Play all" VerticalAlignment="Center" />
                 </StackPanel>
               </Button>
+              <Button Name="PlayAllOfflineButton" Grid.Column="1" IsVisible="False" Click="PlayAllOffline_Click">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <PathIcon Data="M8,5.14V19.14L19,12.14L8,5.14Z" Width="16" Height="16" />
+                  <TextBlock Name="PlayAllOfflineButtonText" Text="Play all" VerticalAlignment="Center" />
+                </StackPanel>
+              </Button>
               <Button Name="DownloadAllTrendingButton" Grid.Column="3" Content="Download all" IsVisible="False" Click="DownloadAllTrending_Click" />
               <Button Name="ChangeOfflineDirectoryButton" Grid.Column="3" Content="Change folder" IsVisible="False" Click="ChangeOfflineDirectory_Click" />
             </Grid>
